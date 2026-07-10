@@ -1,0 +1,28 @@
+{
+  "name": "codex-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "codex-gateway": "bin/codex-gateway.cjs"
+  },
+  "scripts": {
+    "dev": "bun run src/index.ts start",
+    "start": "bun run src/index.ts start",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "build": "bun build src/index.ts --outdir dist --target bun"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.67.0",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "bun": ">=1.0.0",
+    "node": ">=18.0.0"
+  }
+}

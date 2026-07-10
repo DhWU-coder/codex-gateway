@@ -1,0 +1,29 @@
+# Codex Gateway 示例配置
+# 实际使用时建议放到 ~/.codex-gateway/config.yaml
+
+service:
+  port: 18788
+  cwd: ~/.codex-gateway/workspace
+
+codex:
+  command: codex
+  model: gpt-5
+  sandbox: workspace-write
+  skipGitRepoCheck: true
+  search: false
+  dangerouslyBypassApprovalsAndSandbox: false
+  extraArgs: []
+
+channels:
+  feishu:
+    accounts:
+      - id: donghao
+        enabled: true
+        appId: cli_xxx
+        appSecret: your_app_secret
+        botOpenId: ou_xxx
+        domain: feishu
+        model: gpt-5
+        cwd: ~/.codex-gateway/workspace/donghao
+        historyBaseDir: ~/.codex-gateway/channels/feishu/donghao/sessions
+        sendProgressReplies: false

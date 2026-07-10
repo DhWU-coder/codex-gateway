@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.codex-gateway/
+.idea/
+.venv/
+*.log
+
+# 本地真实密钥配置不要提交
+config.yaml
+.env
