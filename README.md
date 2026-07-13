@@ -2,6 +2,22 @@
 
 把飞书机器人 WebSocket 消息转发到本机 Codex CLI 的独立网关。
 
+## 安装
+
+```bash
+git clone https://github.com/DhWU-coder/codex-gateway.git
+cd codex-gateway
+bun install
+bun link
+```
+
+安装后确认命令可用：
+
+```bash
+codex-gateway --help
+codex-gateway doctor
+```
+
 ## 快速使用
 
 ```bash
