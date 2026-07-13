@@ -50,12 +50,13 @@ export interface GatewayConfig {
 
 export interface LoadGatewayConfigOptions {
   configPath?: string;
+  cwd?: string;
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
 }
 
 export function loadGatewayConfig(options: LoadGatewayConfigOptions = {}): GatewayConfig {
-  const configPath = options.configPath ?? resolveDefaultConfigPath(options);
+  const configPath = options.configPath ?? resolveDefaultConfigPath({ cwd: options.cwd });
   const raw = existsSync(configPath) ? parse(readFileSync(configPath, "utf-8")) : {};
   return loadGatewayConfigFromObject(raw, options);
 }

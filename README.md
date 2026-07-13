@@ -5,22 +5,15 @@
 ## 快速使用
 
 ```bash
-bun install
-bun run src/index.ts init-config
+codex-gateway init-config
 ```
 
-编辑 `~/.codex-gateway/config.yaml`，填入飞书开放平台应用的 `appId`、`appSecret` 和机器人 `botOpenId`。
+编辑项目根目录下的 `config.yaml`，填入飞书开放平台应用的 `appId`、`appSecret` 和机器人 `botOpenId`。
 
 ```bash
-bun run src/index.ts doctor
-bun run src/index.ts start
-bun run src/index.ts status
-```
-
-也可以通过 bin 脚本运行：
-
-```bash
-./bin/codex-gateway.cjs start
+codex-gateway doctor
+codex-gateway start
+codex-gateway status
 ```
 
 `run` 和 `start` 都会后台启动服务；`restart`、`stop`、`status` 用于管理后台进程。启动成功后终端会打印 Web UI 地址，默认是 `http://127.0.0.1:18788/`。
@@ -49,4 +42,4 @@ codex-gateway stop
 
 ## 配置
 
-参考 [config-example.yaml](config-example.yaml)。
+默认读取项目根目录下的 `config.yaml`。参考 [config-example.yaml](config-example.yaml)。

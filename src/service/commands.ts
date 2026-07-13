@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { loadGatewayConfig } from "../config.js";
+import { resolveConfigPath } from "../paths.js";
 import { getServiceLogPath } from "./paths.js";
 import { findServicePort, type ServicePortResult } from "./ports.js";
 import { spawnDetachedServiceDaemon } from "./process.js";
@@ -20,6 +21,7 @@ export interface StartServiceResult {
 
 export interface ServiceCommandOptions {
   configPath?: string;
+  cwd?: string;
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
   readState?: () => ServiceState | null;
@@ -72,7 +74,8 @@ export async function startServiceCommand(
     return { state: existing as ServiceState, alreadyRunning: true };
   }
 
-  const config = loadGatewayConfig({ configPath: options.configPath, env: options.env });
+  const configPath = resolveConfigPath(options.configPath, { cwd: options.cwd });
+  const config = loadGatewayConfig({ configPath, env: options.env });
   const cwd = config.service.cwd;
   mkdirSync(cwd, { recursive: true, mode: 0o700 });
   const portResult = await (options.findPort ?? findServicePort)(config.service.port);
@@ -81,7 +84,7 @@ export async function startServiceCommand(
     cwd,
     port: portResult.port,
     logPath,
-    configPath: options.configPath,
+    configPath,
     env: options.env,
   });
   const host = "127.0.0.1";

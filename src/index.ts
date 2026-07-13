@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createExampleConfig, parseCliArgs, renderHelp } from "./cli.js";
 import { loadGatewayConfig } from "./config.js";
-import { resolveDefaultConfigPath } from "./paths.js";
+import { resolveConfigPath, resolveDefaultConfigPath } from "./paths.js";
 import {
   formatStartResult,
   restartServiceCommand,
@@ -22,7 +22,7 @@ export async function main(argv: string[]): Promise<void> {
   }
 
   if (args.command === "init-config") {
-    const configPath = args.configPath ?? resolveDefaultConfigPath();
+    const configPath = args.configPath ? resolveConfigPath(args.configPath) : resolveDefaultConfigPath();
     if (existsSync(configPath)) {
       console.log(`配置已存在：${configPath}`);
       return;

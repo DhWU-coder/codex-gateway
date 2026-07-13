@@ -33,20 +33,26 @@ describe("service commands", () => {
 
   test("spawns a detached daemon and writes service state", async () => {
     let written: Partial<ServiceState> = {};
+    let spawnedConfigPath: string | undefined;
     const result = await startServiceCommand({
-      configPath: join(mkdtempSync(join(tmpdir(), "codex-gateway-service-")), "config.yaml"),
+      configPath: "config.yaml",
+      cwd: "/tmp/codex-gateway",
       now: () => new Date("2026-07-10T00:00:00.000Z"),
       readState: () => null,
       writeState: (next) => {
         written = next;
       },
       findPort: async () => ({ port: 18788 }),
-      spawnDaemon: () => 4321,
+      spawnDaemon: (input) => {
+        spawnedConfigPath = input.configPath;
+        return 4321;
+      },
     });
 
     expect(result.state.pid).toBe(4321);
     expect(result.state.webUrl).toBe("http://127.0.0.1:18788/");
     expect(written.pid).toBe(4321);
+    expect(spawnedConfigPath).toBe("/tmp/codex-gateway/config.yaml");
   });
 
   test("stop kills a running daemon and removes state", async () => {

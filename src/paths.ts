@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 export function expandHomePath(value: string | undefined, homeDir = homedir()): string | undefined {
   if (!value) return undefined;
@@ -15,10 +15,17 @@ export function resolveGatewayHome(input?: { env?: NodeJS.ProcessEnv; homeDir?: 
 }
 
 export function resolveDefaultConfigPath(input?: {
-  env?: NodeJS.ProcessEnv;
-  homeDir?: string;
+  cwd?: string;
 }): string {
-  return join(resolveGatewayHome(input), "config.yaml");
+  return resolve(input?.cwd ?? process.cwd(), "config.yaml");
+}
+
+export function resolveConfigPath(
+  value: string | undefined,
+  input?: { cwd?: string; homeDir?: string }
+): string {
+  const expanded = expandHomePath(value, input?.homeDir);
+  return expanded ? resolve(input?.cwd ?? process.cwd(), expanded) : resolveDefaultConfigPath(input);
 }
 
 export function resolveDefaultWorkspacePath(input?: {

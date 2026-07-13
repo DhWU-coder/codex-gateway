@@ -46,7 +46,7 @@ export function parseCliArgs(args: string[]): ParsedCliArgs {
 
 export function createExampleConfig(): string {
   return `# Codex Gateway 示例配置
-# 实际使用时建议放到 ~/.codex-gateway/config.yaml
+# 默认实际配置文件是项目根目录下的 config.yaml
 
 service:
   port: 18788
