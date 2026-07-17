@@ -17,6 +17,7 @@ export interface ManagedChannelStatus {
 
 export interface ChannelManagerOptions {
   config: GatewayConfig;
+  projectRoot?: string;
   createFeishuChannel?: (account: FeishuAccountConfig) => ManagedChannel;
 }
 
@@ -25,9 +26,8 @@ export class ChannelManager {
 
   constructor(private readonly options: ChannelManagerOptions) {
     this.channels = options.config.channels.feishu.accounts.map((account) =>
-      (options.createFeishuChannel ?? ((item) => createDefaultFeishuChannel(item, options.config)))(
-        account
-      )
+      (options.createFeishuChannel ?? ((item) =>
+        createDefaultFeishuChannel(item, options.config, options.projectRoot)))(account)
     );
   }
 
@@ -52,11 +52,13 @@ export class ChannelManager {
 
 function createDefaultFeishuChannel(
   account: FeishuAccountConfig,
-  config: GatewayConfig
+  config: GatewayConfig,
+  projectRoot?: string
 ): ManagedChannel {
   return new FeishuChannel({
     account,
     codex: config.codex,
+    projectRoot,
     ...(account.enabled ? createFeishuSdkClients(account) : {}),
   });
 }

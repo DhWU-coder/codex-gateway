@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CodexSandboxMode } from "../config.js";
 import { parseCodexJsonEvents } from "./json-events.js";
+import { appendCodexUsageLog } from "./usage-log.js";
 
 export interface CodexRunInput {
   cwd: string;
@@ -22,6 +23,7 @@ export interface CodexRunInput {
   extraArgs?: string[];
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
+  projectRoot?: string;
 }
 
 export interface CodexRunResult {
@@ -86,6 +88,20 @@ export async function runCodex(input: CodexRunInput): Promise<CodexRunResult> {
 
     const parsed = parseCodexJsonEvents(stdout);
     const text = readOutputMessage(outputFile) || parsed.assistantText || stdout.trim();
+    if (parsed.usage) {
+      try {
+        appendCodexUsageLog({
+          projectRoot: input.projectRoot ?? process.cwd(),
+          cwd: input.cwd,
+          sessionId: parsed.sessionId || input.sessionId,
+          requestId: parsed.requestId,
+          model: parsed.model || input.model,
+          usage: parsed.usage,
+        });
+      } catch (error) {
+        console.warn(`Codex 用量日志写入失败：${formatError(error)}`);
+      }
+    }
     return {
       text: text.trim(),
       sessionId: parsed.sessionId || input.sessionId,
@@ -142,4 +158,8 @@ function readOutputMessage(path: string): string {
 function formatCodexFailure(exitCode: number, stdout: string, stderr: string): string {
   const details = [stderr.trim(), stdout.trim()].filter(Boolean).join("\n");
   return details ? `Codex CLI failed (${exitCode}): ${details}` : `Codex CLI failed (${exitCode})`;
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

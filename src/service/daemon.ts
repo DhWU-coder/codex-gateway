@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { ChannelManager } from "../channel-manager.js";
 import { loadGatewayConfig, type GatewayConfig } from "../config.js";
 import { startWebServer } from "../web-server.js";
@@ -9,6 +10,7 @@ export interface StartServiceDaemonOptions {
   port: number;
   cwd?: string;
   configPath?: string;
+  projectRoot?: string;
   config?: GatewayConfig;
   now?: () => Date;
   createChannelManager?: (config: GatewayConfig) => ChannelManager;
@@ -29,8 +31,11 @@ export async function startServiceDaemon(
       configPath: options.configPath,
     });
   const cwd = options.cwd ?? config.service.cwd;
+  const projectRoot =
+    options.projectRoot ?? (options.configPath ? dirname(resolve(options.configPath)) : process.cwd());
   mkdirSync(cwd, { recursive: true, mode: 0o700 });
-  const channelManager = options.createChannelManager?.(config) ?? new ChannelManager({ config });
+  const channelManager =
+    options.createChannelManager?.(config) ?? new ChannelManager({ config, projectRoot });
   await channelManager.start();
 
   let stopped = false;

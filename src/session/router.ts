@@ -15,6 +15,7 @@ export interface CodexSessionRouterOptions {
   skipGitRepoCheck?: boolean;
   dangerouslyBypassApprovalsAndSandbox?: boolean;
   extraArgs?: string[];
+  projectRoot?: string;
   onOutput?: (conversationKey: string, text: string) => void | Promise<void>;
 }
 
@@ -117,6 +118,7 @@ export class CodexSessionRouter {
         dangerouslyBypassApprovalsAndSandbox: this.options.dangerouslyBypassApprovalsAndSandbox,
         extraArgs: this.options.extraArgs,
         signal: abortController.signal,
+        projectRoot: this.options.projectRoot,
       });
 
       if (this.sessions.get(conversationKey) !== routed) return;

@@ -45,6 +45,7 @@ export interface FeishuChannelOptions {
   mediaClient?: FeishuMediaClient;
   messageClient?: FeishuMessageClient;
   router?: FeishuRouterLike;
+  projectRoot?: string;
   logger?: Pick<Console, "log" | "warn" | "error">;
 }
 
@@ -52,6 +53,7 @@ export class FeishuChannel {
   readonly id: string;
   private readonly account: FeishuAccountConfig;
   private readonly codex?: CodexConfig;
+  private readonly projectRoot?: string;
   private readonly eventClient: FeishuEventClient;
   private readonly mediaClient?: FeishuMediaClient;
   private readonly messageClient?: FeishuMessageClient;
@@ -64,6 +66,7 @@ export class FeishuChannel {
   constructor(options: FeishuChannelOptions) {
     this.account = options.account;
     this.codex = options.codex;
+    this.projectRoot = options.projectRoot;
     this.id = options.account.id === "default" ? "feishu" : `feishu:${options.account.id}`;
     this.eventClient = options.eventClient ?? noopEventClient();
     this.mediaClient = options.mediaClient;
@@ -249,6 +252,7 @@ export class FeishuChannel {
       skipGitRepoCheck: this.codex?.skipGitRepoCheck,
       dangerouslyBypassApprovalsAndSandbox: this.codex?.dangerouslyBypassApprovalsAndSandbox,
       extraArgs: this.codex?.extraArgs,
+      projectRoot: this.projectRoot,
       onOutput: (conversationKey, text) => this.handleSessionOutput(conversationKey, text),
     });
   }

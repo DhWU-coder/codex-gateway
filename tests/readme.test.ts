@@ -9,6 +9,7 @@ describe("README", () => {
     expect(readme).toContain("bun link");
     expect(readme).toContain("codex-gateway init-config");
     expect(readme).toContain("codex-gateway start");
+    expect(readme).toContain(".codex-usage/usage.jsonl");
     expect(readme).not.toContain("bun run src/index.ts");
     expect(readme).not.toContain("./bin/codex-gateway.cjs");
     expect(readme).not.toContain("~/.codex-gateway/config.yaml");

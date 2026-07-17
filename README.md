@@ -59,3 +59,7 @@ codex-gateway stop
 ## 配置
 
 默认读取项目根目录下的 `config.yaml`。参考 [config-example.yaml](config-example.yaml)。
+
+## 用量日志
+
+每次 Codex CLI 成功返回真实 token usage 后，网关会追加一行到当前项目目录的 `.codex-usage/usage.jsonl`，可直接供 `codex-usage` 导入。没有真实 usage 时不会估算，也不会记录 prompt、回复正文、密钥或完整请求响应。

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .codex-gateway/
+.codex-usage/
 .idea/
 .venv/
 *.log
