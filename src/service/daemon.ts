@@ -1,9 +1,13 @@
-import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { ChannelManager } from "../channel-manager.js";
+import { mkdirSync, watch } from "node:fs";
+import { basename, dirname, resolve } from "node:path";
+import { ChannelManager, type ChannelReloadResult } from "../channel-manager.js";
 import { loadGatewayConfig, type GatewayConfig } from "../config.js";
 import { startWebServer } from "../web-server.js";
 import { getServiceLogPath } from "./paths.js";
+import {
+  spawnDetachedServiceRestart,
+  type SpawnRestartOptions,
+} from "./process.js";
 import { type ServiceState, removeServiceState, writeServiceState } from "./state.js";
 
 export interface StartServiceDaemonOptions {
@@ -15,34 +19,91 @@ export interface StartServiceDaemonOptions {
   now?: () => Date;
   createChannelManager?: (config: GatewayConfig) => ChannelManager;
   startWebServer?: typeof startWebServer;
+  createConfigWatcher?: (options: ServiceConfigWatcherOptions) => ServiceConfigWatcher;
+  spawnServiceRestart?: (options: SpawnRestartOptions) => number;
 }
 
 export interface ServiceDaemonController {
   state: ServiceState;
+  configReloadState(): ConfigReloadState;
   stop(): Promise<void>;
 }
+
+export interface ServiceConfigWatcher {
+  close(): void;
+}
+
+export interface ServiceConfigWatcherOptions {
+  configPath: string;
+  onChange(): Promise<void> | void;
+}
+
+export type ConfigReloadState =
+  | { status: "idle" }
+  | { status: "success"; updatedAt: string; result: ChannelReloadResult }
+  | {
+      status: "error";
+      updatedAt: string;
+      error: string;
+      result?: ChannelReloadResult;
+    };
 
 export async function startServiceDaemon(
   options: StartServiceDaemonOptions
 ): Promise<ServiceDaemonController> {
+  const configPath = options.configPath ? resolve(options.configPath) : undefined;
   const config =
     options.config ??
     loadGatewayConfig({
-      configPath: options.configPath,
+      configPath,
     });
   const cwd = options.cwd ?? config.service.cwd;
   const projectRoot =
-    options.projectRoot ?? (options.configPath ? dirname(resolve(options.configPath)) : process.cwd());
+    options.projectRoot ?? (configPath ? dirname(configPath) : process.cwd());
+  const logPath = getServiceLogPath();
   mkdirSync(cwd, { recursive: true, mode: 0o700 });
   const channelManager =
     options.createChannelManager?.(config) ?? new ChannelManager({ config, projectRoot });
   await channelManager.start();
+
+  let configReloadState: ConfigReloadState = { status: "idle" };
+  const configWatcher =
+    !options.config && configPath
+      ? (options.createConfigWatcher ?? watchGatewayConfig)({
+          configPath,
+          onChange: async () => {
+            try {
+              const nextConfig = loadGatewayConfig({ configPath });
+              const result = await channelManager.reloadConfig(nextConfig);
+              const updatedAt = new Date().toISOString();
+              configReloadState = result.errors.length
+                ? {
+                    status: "error",
+                    updatedAt,
+                    error: result.errors
+                      .map((item) => `${item.channelId}: ${item.error}`)
+                      .join("\n"),
+                    result,
+                  }
+                : { status: "success", updatedAt, result };
+            } catch (error) {
+              configReloadState = {
+                status: "error",
+                updatedAt: new Date().toISOString(),
+                error: formatError(error),
+              };
+              console.warn(`[codex-gateway] 配置热更新失败：${formatError(error)}`);
+            }
+          },
+        })
+      : undefined;
 
   let stopped = false;
   let state: ServiceState;
   const stop = async () => {
     if (stopped) return;
     stopped = true;
+    configWatcher?.close();
     await channelManager.stop();
     webServer.stop();
     removeServiceState();
@@ -53,6 +114,17 @@ export async function startServiceDaemon(
     channelStatusProvider: () => channelManager.getStatus(),
     channelManager,
     stopService: stop,
+    restartService: () => {
+      (options.spawnServiceRestart ?? spawnDetachedServiceRestart)({
+        cwd: projectRoot,
+        configPath,
+        logPath,
+      });
+    },
+    projectRoot,
+    configPath,
+    logPath,
+    configReloadStateProvider: () => configReloadState,
   });
   const host = "127.0.0.1";
   const boundPort = webServer.port ?? options.port;
@@ -62,7 +134,7 @@ export async function startServiceDaemon(
     host,
     port: boundPort,
     webUrl: `http://${host}:${boundPort}/`,
-    logPath: getServiceLogPath(),
+    logPath,
     cwd,
     channels: Object.fromEntries(
       channelManager.getStatus().channels.map((channel) => [channel.id, channel])
@@ -77,5 +149,34 @@ export async function startServiceDaemon(
     stop().finally(() => process.exit(0));
   });
 
-  return { state, stop };
+  return { state, configReloadState: () => configReloadState, stop };
+}
+
+export function watchGatewayConfig(
+  options: ServiceConfigWatcherOptions
+): ServiceConfigWatcher {
+  const directory = dirname(options.configPath);
+  const fileName = basename(options.configPath);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const watcher = watch(directory, (_eventType, changedFileName) => {
+    if (changedFileName && String(changedFileName) !== fileName) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      Promise.resolve(options.onChange()).catch((error) => {
+        console.warn(`[codex-gateway] 配置热更新失败：${formatError(error)}`);
+      });
+    }, 500);
+  });
+  return {
+    close() {
+      if (timer) clearTimeout(timer);
+      watcher.close();
+    },
+  };
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

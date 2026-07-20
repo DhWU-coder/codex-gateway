@@ -101,6 +101,134 @@ describe("Channel manager", () => {
     expect(await manager.testChannelConnection("missing")).toMatchObject({ ok: false });
     expect(manager.listChannelArchives("feishu:test", "dm:ou_sender")).toEqual([]);
   });
+
+  test("热更新时动态删除和新增飞书账号", async () => {
+    const events: string[] = [];
+    const manager = new ChannelManager({
+      config: gatewayConfig([account("old")]),
+      createFeishuChannel: (item) => ({
+        id: channelId(item.id),
+        async start() {
+          events.push(`start:${item.id}`);
+        },
+        async stop() {
+          events.push(`stop:${item.id}`);
+        },
+        getStatus: () => ({ id: channelId(item.id), status: "connected" }),
+      }),
+    });
+    await manager.start();
+
+    const result = await manager.reloadConfig(gatewayConfig([account("new")]));
+
+    expect(result).toMatchObject({
+      added: ["feishu:new"],
+      removed: ["feishu:old"],
+      errors: [],
+    });
+    expect(events).toEqual(["start:old", "stop:old", "start:new"]);
+    expect(manager.getStatus().channels.map((item) => item.id)).toEqual(["feishu:new"]);
+  });
+
+  test("过程回复原地更新，凭据变化只重建对应频道", async () => {
+    const created: FeishuAccountConfig[] = [];
+    const updates: Array<{ id: string; sendProgressReplies?: boolean }> = [];
+    const events: string[] = [];
+    const initial = { ...account("primary"), model: "gpt-5", cwd: "/workspace/old" };
+    const manager = new ChannelManager({
+      config: gatewayConfig([initial]),
+      createFeishuChannel: (item) => {
+        created.push({ ...item });
+        const generation = created.length;
+        return {
+          id: channelId(item.id),
+          async start() {
+            events.push(`start:${generation}`);
+          },
+          async stop() {
+            events.push(`stop:${generation}`);
+          },
+          getStatus: () => ({ id: channelId(item.id), status: "connected" }),
+          updateConfig(config) {
+            updates.push({ id: item.id, ...config });
+          },
+        };
+      },
+    });
+    await manager.start();
+
+    const runtimeResult = await manager.reloadConfig(
+      gatewayConfig([{ ...initial, sendProgressReplies: true }])
+    );
+    const restartResult = await manager.reloadConfig(
+      gatewayConfig([
+        {
+          ...initial,
+          appSecret: "secret-new",
+          sendProgressReplies: true,
+          model: "gpt-5-new",
+          cwd: "/workspace/new",
+        },
+      ])
+    );
+
+    expect(runtimeResult.updated).toEqual(["feishu:primary"]);
+    expect(updates).toEqual([{ id: "primary", sendProgressReplies: true }]);
+    expect(restartResult.restarted).toEqual(["feishu:primary"]);
+    expect(restartResult.ignoredNonHotFields).toEqual([
+      "feishu:primary.model",
+      "feishu:primary.cwd",
+    ]);
+    expect(created).toHaveLength(2);
+    expect(created[1]).toMatchObject({
+      appSecret: "secret-new",
+      model: "gpt-5",
+      cwd: "/workspace/old",
+      sendProgressReplies: true,
+    });
+    expect(events).toEqual(["start:1", "stop:1", "start:2"]);
+  });
+
+  test("频道重建失败时恢复旧频道并隔离错误", async () => {
+    const events: string[] = [];
+    const initial = account("primary");
+    const manager = new ChannelManager({
+      config: gatewayConfig([initial]),
+      createFeishuChannel: (item) => ({
+        id: channelId(item.id),
+        async start() {
+          events.push(`start:${item.appSecret}`);
+          if (item.appSecret === "bad-secret") throw new Error("连接失败");
+        },
+        async stop() {
+          events.push(`stop:${item.appSecret}`);
+        },
+        getStatus: () => ({
+          id: channelId(item.id),
+          status: item.appSecret === "bad-secret" ? "failed" : "connected",
+        }),
+      }),
+    });
+    await manager.start();
+
+    const result = await manager.reloadConfig(
+      gatewayConfig([{ ...initial, appSecret: "bad-secret" }])
+    );
+
+    expect(result.errors).toEqual([
+      { channelId: "feishu:primary", error: "连接失败" },
+    ]);
+    expect(manager.getStatus().channels).toEqual([
+      { id: "feishu:primary", status: "connected" },
+    ]);
+    expect(events).toEqual([
+      "start:secret",
+      "stop:secret",
+      "start:bad-secret",
+      "stop:bad-secret",
+      "start:secret",
+    ]);
+  });
 });
 
 function account(id: string): FeishuAccountConfig {
@@ -136,4 +264,8 @@ function gatewayConfig(accounts: FeishuAccountConfig[]): GatewayConfig {
       },
     },
   };
+}
+
+function channelId(id: string): string {
+  return id === "default" ? "feishu" : `feishu:${id}`;
 }

@@ -15,6 +15,50 @@ export interface SpawnDaemonOptions extends BuildDaemonArgsOptions {
   env?: NodeJS.ProcessEnv;
 }
 
+export interface BuildRestartArgsOptions {
+  configPath?: string;
+}
+
+export interface SpawnRestartOptions extends BuildRestartArgsOptions {
+  cwd: string;
+  logPath: string;
+  entrypoint?: string;
+  runtime?: string;
+  env?: NodeJS.ProcessEnv;
+  spawnProcess?: typeof spawn;
+}
+
+export function buildRestartArgs(options: BuildRestartArgsOptions): string[] {
+  const args = ["restart"];
+  if (options.configPath) args.push("--config", options.configPath);
+  return args;
+}
+
+export function spawnDetachedServiceRestart(options: SpawnRestartOptions): number {
+  mkdirSync(dirname(options.logPath), { recursive: true, mode: 0o700 });
+  const logFd = openSync(options.logPath, "a", 0o600);
+  try {
+    const child = (options.spawnProcess ?? spawn)(
+      options.runtime ?? process.execPath,
+      [
+        options.entrypoint ?? resolveDaemonEntrypoint(),
+        ...buildRestartArgs(options),
+      ],
+      {
+        cwd: options.cwd,
+        detached: true,
+        env: options.env ?? process.env,
+        stdio: ["ignore", logFd, logFd],
+      }
+    );
+    child.unref();
+    if (!child.pid) throw new Error("无法启动 codex-gateway 重启辅助进程");
+    return child.pid;
+  } finally {
+    closeSync(logFd);
+  }
+}
+
 export function buildDaemonArgs(options: BuildDaemonArgsOptions): string[] {
   const args = [
     "--service-daemon",

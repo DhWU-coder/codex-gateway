@@ -39,31 +39,50 @@ export interface ChannelManagerOptions {
   createFeishuChannel?: (account: FeishuAccountConfig) => ManagedChannel;
 }
 
+export interface ChannelReloadResult {
+  added: string[];
+  removed: string[];
+  restarted: string[];
+  updated: string[];
+  unchanged: string[];
+  ignoredNonHotFields: string[];
+  errors: Array<{ channelId: string; error: string }>;
+}
+
 export class ChannelManager {
-  private readonly channels: ManagedChannel[];
+  private readonly channels = new Map<string, ManagedChannel>();
+  private readonly feishuConfigs = new Map<string, FeishuAccountConfig>();
+  private readonly createFeishuChannel: (account: FeishuAccountConfig) => ManagedChannel;
+  private started = false;
 
   constructor(private readonly options: ChannelManagerOptions) {
-    this.channels = options.config.channels.feishu.accounts.map((account) =>
-      (options.createFeishuChannel ?? ((item) =>
-        createDefaultFeishuChannel(item, options.config, options.projectRoot)))(account)
-    );
+    this.createFeishuChannel =
+      options.createFeishuChannel ??
+      ((item) => createDefaultFeishuChannel(item, options.config, options.projectRoot));
+    for (const account of options.config.channels.feishu.accounts) {
+      const channel = this.createFeishuChannel(account);
+      this.channels.set(channel.id, channel);
+      this.feishuConfigs.set(channel.id, { ...account });
+    }
   }
 
   async start(): Promise<void> {
-    for (const channel of this.channels) {
+    for (const channel of this.channels.values()) {
       await channel.start();
     }
+    this.started = true;
   }
 
   async stop(): Promise<void> {
-    for (const channel of this.channels) {
+    for (const channel of this.channels.values()) {
       await channel.stop();
     }
+    this.started = false;
   }
 
   getStatus(): { channels: ManagedChannelStatus[] } {
     return {
-      channels: this.channels.map((channel) => channel.getStatus()),
+      channels: Array.from(this.channels.values()).map((channel) => channel.getStatus()),
     };
   }
 
@@ -74,7 +93,42 @@ export class ChannelManager {
     const channel = this.findChannel(id);
     if (!channel?.updateConfig) return false;
     channel.updateConfig(config);
+    const previous = this.feishuConfigs.get(id);
+    if (previous && typeof config.sendProgressReplies === "boolean") {
+      this.feishuConfigs.set(id, {
+        ...previous,
+        sendProgressReplies: config.sendProgressReplies,
+      });
+    }
     return true;
+  }
+
+  async reloadConfig(config: GatewayConfig): Promise<ChannelReloadResult> {
+    const result = createReloadResult();
+    const nextConfigs = new Map<string, FeishuAccountConfig>();
+    for (const account of config.channels.feishu.accounts) {
+      nextConfigs.set(resolveFeishuChannelId(account.id), { ...account });
+    }
+
+    for (const channelId of Array.from(this.feishuConfigs.keys())) {
+      if (nextConfigs.has(channelId)) continue;
+      try {
+        await this.removeChannel(channelId);
+        result.removed.push(channelId);
+      } catch (error) {
+        result.errors.push({ channelId, error: formatError(error) });
+      }
+    }
+
+    for (const [channelId, nextConfig] of nextConfigs) {
+      try {
+        await this.reloadChannel(channelId, nextConfig, result);
+      } catch (error) {
+        result.errors.push({ channelId, error: formatError(error) });
+      }
+    }
+    result.ignoredNonHotFields = Array.from(new Set(result.ignoredNonHotFields));
+    return result;
   }
 
   async testChannelConnection(id: string): Promise<FeishuConnectionTestResult> {
@@ -116,8 +170,152 @@ export class ChannelManager {
   }
 
   private findChannel(id: string): ManagedChannel | undefined {
-    return this.channels.find((channel) => channel.id === id);
+    return this.channels.get(id);
   }
+
+  private async reloadChannel(
+    channelId: string,
+    nextConfig: FeishuAccountConfig,
+    result: ChannelReloadResult
+  ): Promise<void> {
+    const previousConfig = this.feishuConfigs.get(channelId);
+    if (!previousConfig) {
+      await this.addChannel(nextConfig);
+      result.added.push(channelId);
+      return;
+    }
+
+    result.ignoredNonHotFields.push(
+      ...collectIgnoredNonHotFields(previousConfig, nextConfig).map(
+        (field) => `${channelId}.${field}`
+      )
+    );
+    const effectiveConfig = preserveNonHotFields(previousConfig, nextConfig);
+    if (requiresRestart(previousConfig, effectiveConfig)) {
+      await this.replaceChannel(channelId, effectiveConfig);
+      result.restarted.push(channelId);
+      return;
+    }
+    if (previousConfig.sendProgressReplies !== effectiveConfig.sendProgressReplies) {
+      const channel = this.channels.get(channelId);
+      if (!channel?.updateConfig) {
+        await this.replaceChannel(channelId, effectiveConfig);
+        result.restarted.push(channelId);
+        return;
+      }
+      await channel.updateConfig({
+        sendProgressReplies: effectiveConfig.sendProgressReplies,
+      });
+      this.feishuConfigs.set(channelId, effectiveConfig);
+      result.updated.push(channelId);
+      return;
+    }
+    this.feishuConfigs.set(channelId, effectiveConfig);
+    result.unchanged.push(channelId);
+  }
+
+  private async addChannel(config: FeishuAccountConfig): Promise<void> {
+    const channel = this.createFeishuChannel(config);
+    try {
+      if (this.started) await channel.start();
+    } catch (error) {
+      await Promise.resolve(channel.stop()).catch(() => undefined);
+      throw error;
+    }
+    this.channels.set(channel.id, channel);
+    this.feishuConfigs.set(channel.id, config);
+  }
+
+  private async removeChannel(channelId: string): Promise<void> {
+    const channel = this.channels.get(channelId);
+    if (channel) await channel.stop();
+    this.channels.delete(channelId);
+    this.feishuConfigs.delete(channelId);
+  }
+
+  private async replaceChannel(
+    channelId: string,
+    config: FeishuAccountConfig
+  ): Promise<void> {
+    const previousChannel = this.channels.get(channelId);
+    if (previousChannel) await previousChannel.stop();
+    const nextChannel = this.createFeishuChannel(config);
+    try {
+      if (this.started) await nextChannel.start();
+    } catch (error) {
+      await Promise.resolve(nextChannel.stop()).catch(() => undefined);
+      if (previousChannel && this.started) {
+        await previousChannel.start().catch(() => undefined);
+      }
+      throw error;
+    }
+    this.channels.set(channelId, nextChannel);
+    this.feishuConfigs.set(channelId, config);
+  }
+}
+
+function createReloadResult(): ChannelReloadResult {
+  return {
+    added: [],
+    removed: [],
+    restarted: [],
+    updated: [],
+    unchanged: [],
+    ignoredNonHotFields: [],
+    errors: [],
+  };
+}
+
+function resolveFeishuChannelId(accountId: string): string {
+  return accountId === "default" ? "feishu" : `feishu:${accountId}`;
+}
+
+function preserveNonHotFields(
+  previous: FeishuAccountConfig,
+  next: FeishuAccountConfig
+): FeishuAccountConfig {
+  return {
+    ...previous,
+    enabled: next.enabled,
+    appId: next.appId,
+    appSecret: next.appSecret,
+    botOpenId: next.botOpenId,
+    domain: next.domain,
+    sendProgressReplies: next.sendProgressReplies,
+  };
+}
+
+function requiresRestart(
+  previous: FeishuAccountConfig,
+  next: FeishuAccountConfig
+): boolean {
+  return (
+    previous.enabled !== next.enabled ||
+    previous.appId !== next.appId ||
+    previous.appSecret !== next.appSecret ||
+    previous.botOpenId !== next.botOpenId ||
+    previous.domain !== next.domain
+  );
+}
+
+function collectIgnoredNonHotFields(
+  previous: FeishuAccountConfig,
+  next: FeishuAccountConfig
+): string[] {
+  const fields: string[] = [];
+  if (previous.model !== next.model) fields.push("model");
+  if (previous.cwd !== next.cwd) fields.push("cwd");
+  if (previous.historyBaseDir !== next.historyBaseDir) fields.push("historyBaseDir");
+  if (JSON.stringify(previous.history) !== JSON.stringify(next.history)) fields.push("history");
+  if (JSON.stringify(previous.summary) !== JSON.stringify(next.summary)) fields.push("summary");
+  if (previous.messageDedupeTtlMs !== next.messageDedupeTtlMs) {
+    fields.push("messageDedupeTtlMs");
+  }
+  return fields;
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function createDefaultFeishuChannel(
