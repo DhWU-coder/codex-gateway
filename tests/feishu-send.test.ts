@@ -78,4 +78,42 @@ describe("Feishu send", () => {
     ]);
     rmSync(cwd, { recursive: true, force: true });
   });
+
+  test("tests credentials through the tenant access token API", async () => {
+    const calls: unknown[] = [];
+    const client = createSdkFeishuMessageClient(
+      {
+        auth: {
+          v3: {
+            tenantAccessToken: {
+              async internal(input) {
+                calls.push(input);
+                return { code: 0, msg: "ok", tenant_access_token: "token" };
+              },
+            },
+          },
+        },
+        im: {
+          v1: {
+            message: {
+              async reply() {},
+              async create() {},
+            },
+          },
+        },
+      },
+      { appId: "cli_app", appSecret: "secret" }
+    );
+
+    const result = await client.testConnection?.({ expectedBotOpenId: "ou_bot" });
+
+    expect(calls).toEqual([{ data: { app_id: "cli_app", app_secret: "secret" } }]);
+    expect(result).toMatchObject({
+      ok: true,
+      checks: [
+        { name: "tenant_access_token", ok: true },
+        { name: "bot_open_id", ok: true },
+      ],
+    });
+  });
 });

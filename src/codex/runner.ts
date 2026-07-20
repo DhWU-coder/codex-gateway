@@ -3,7 +3,11 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CodexSandboxMode } from "../config.js";
-import { parseCodexJsonEvents } from "./json-events.js";
+import {
+  type CodexProgressEvent,
+  parseCodexJsonEvents,
+  parseCodexProgressLine,
+} from "./json-events.js";
 import { appendCodexUsageLog } from "./usage-log.js";
 
 export interface CodexRunInput {
@@ -24,6 +28,7 @@ export interface CodexRunInput {
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
   projectRoot?: string;
+  onProgress?: (event: CodexProgressEvent) => void;
 }
 
 export interface CodexRunResult {
@@ -81,7 +86,11 @@ export async function runCodex(input: CodexRunInput): Promise<CodexRunResult> {
   const command = buildCodexCommand({ ...input, outputFile });
 
   try {
-    const { stdout, stderr, exitCode } = await runChildProcess(command, input.signal);
+    const { stdout, stderr, exitCode } = await runChildProcess(
+      command,
+      input.signal,
+      input.onProgress
+    );
     if (exitCode !== 0) {
       throw new Error(formatCodexFailure(exitCode, stdout, stderr));
     }
@@ -114,7 +123,8 @@ export async function runCodex(input: CodexRunInput): Promise<CodexRunResult> {
 
 async function runChildProcess(
   command: CodexCommand,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onProgress?: (event: CodexProgressEvent) => void
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const child = spawn(command.command, command.args, {
     cwd: command.cwd,
@@ -128,13 +138,19 @@ async function runChildProcess(
 
   let stdout = "";
   let stderr = "";
+  let stdoutLineBuffer = "";
   child.stdout.setEncoding("utf-8");
   child.stderr.setEncoding("utf-8");
   child.stdout.on("data", (chunk) => {
     stdout += chunk;
+    stdoutLineBuffer = consumeJsonLines(stdoutLineBuffer + chunk, (line) => {
+      for (const event of parseCodexProgressLine(line)) emitProgress(onProgress, event);
+    });
   });
   child.stderr.on("data", (chunk) => {
     stderr += chunk;
+    const text = String(chunk).trim();
+    if (text) emitProgress(onProgress, { type: "stderr", text });
   });
   child.stdin.write(command.stdin);
   child.stdin.end();
@@ -147,7 +163,28 @@ async function runChildProcess(
   });
 
   if (signal?.aborted) throw new Error("Codex session stopped");
+  if (stdoutLineBuffer.trim()) {
+    for (const event of parseCodexProgressLine(stdoutLineBuffer)) emitProgress(onProgress, event);
+  }
   return { stdout, stderr, exitCode };
+}
+
+function consumeJsonLines(input: string, onLine: (line: string) => void): string {
+  const lines = input.split(/\r?\n/);
+  const rest = lines.pop() ?? "";
+  for (const line of lines) onLine(line);
+  return rest;
+}
+
+function emitProgress(
+  onProgress: ((event: CodexProgressEvent) => void) | undefined,
+  event: CodexProgressEvent
+): void {
+  try {
+    onProgress?.(event);
+  } catch (error) {
+    console.warn(`Codex 进度回调失败：${formatError(error)}`);
+  }
 }
 
 function readOutputMessage(path: string): string {

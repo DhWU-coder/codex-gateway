@@ -33,6 +33,20 @@ export interface FeishuAccountConfig {
   cwd: string;
   historyBaseDir: string;
   sendProgressReplies: boolean;
+  history?: FeishuHistoryConfig;
+  summary?: FeishuSummaryConfig;
+  messageDedupeTtlMs?: number;
+}
+
+export interface FeishuHistoryConfig {
+  maxMessages: number;
+  maxSessions: number;
+}
+
+export interface FeishuSummaryConfig {
+  model?: string;
+  maxMessages: number;
+  concurrency: number;
 }
 
 export interface GatewayConfig {
@@ -144,6 +158,8 @@ function normalizeFeishuAccount(
   const appId = readString(raw.appId) || input.env.FEISHU_APP_ID || undefined;
   const appSecret = readString(raw.appSecret) || input.env.FEISHU_APP_SECRET || undefined;
   const explicitEnabled = readBoolean(raw.enabled);
+  const historyRaw = asRecord(raw.history);
+  const summaryRaw = asRecord(raw.summary);
   const cwd =
     expandHomePath(readString(raw.cwd), input.homeDir) ??
     resolveDefaultWorkspacePath({
@@ -169,6 +185,16 @@ function normalizeFeishuAccount(
       expandHomePath(readString(raw.historyBaseDir), input.homeDir) ??
       resolveDefaultHistoryPath({ env: input.env, homeDir: input.homeDir, accountId: id }),
     sendProgressReplies: readBoolean(raw.sendProgressReplies) ?? false,
+    history: {
+      maxMessages: readPositiveInteger(historyRaw.maxMessages) ?? 50,
+      maxSessions: readPositiveInteger(historyRaw.maxSessions) ?? 100,
+    },
+    summary: {
+      model: readString(summaryRaw.model),
+      maxMessages: readPositiveInteger(summaryRaw.maxMessages) ?? 50,
+      concurrency: readPositiveInteger(summaryRaw.concurrency) ?? 5,
+    },
+    messageDedupeTtlMs: readPositiveInteger(raw.messageDedupeTtlMs) ?? 10 * 60 * 1000,
   };
 }
 
@@ -216,4 +242,10 @@ function readPort(value: unknown): number | undefined {
 function readStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+}
+
+function readPositiveInteger(value: unknown): number | undefined {
+  if (typeof value !== "number" && typeof value !== "string") return undefined;
+  const parsed = typeof value === "number" ? value : Number.parseInt(value.trim(), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }

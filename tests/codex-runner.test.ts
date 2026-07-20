@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { buildCodexCommand, runCodex } from "../src/codex/runner.js";
-import { parseCodexJsonEvents } from "../src/codex/json-events.js";
+import { parseCodexJsonEvents, parseCodexProgressLine } from "../src/codex/json-events.js";
 
 describe("Codex runner", () => {
   test("builds a fresh codex exec command with stdin prompt and images", () => {
@@ -89,6 +89,112 @@ describe("Codex runner", () => {
       output: 23,
       reasoning: 5,
     });
+  });
+
+  test("normalizes Codex item events into progress events", () => {
+    expect(
+      parseCodexProgressLine(
+        JSON.stringify({
+          type: "item.started",
+          item: { id: "item_1", type: "command_execution", command: "bun test" },
+        })
+      )
+    ).toEqual([
+      {
+        type: "tool_start",
+        name: "command_execution",
+        input: { command: "bun test" },
+        toolUseId: "item_1",
+      },
+    ]);
+    expect(
+      parseCodexProgressLine(
+        JSON.stringify({
+          type: "item.completed",
+          item: {
+            id: "item_1",
+            type: "command_execution",
+            aggregated_output: "57 tests passed",
+            status: "completed",
+          },
+        })
+      )
+    ).toEqual([
+      {
+        type: "tool_result",
+        name: "command_execution",
+        text: "57 tests passed",
+        isError: false,
+        toolUseId: "item_1",
+      },
+    ]);
+    expect(
+      parseCodexProgressLine(
+        JSON.stringify({
+          type: "item.completed",
+          item: { id: "item_2", type: "agent_message", text: "已经完成。" },
+        })
+      )
+    ).toEqual([{ type: "assistant_text", text: "已经完成。" }]);
+  });
+
+  test("emits progress before the Codex process exits", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "codex-gateway-progress-project-"));
+    const workdir = mkdtempSync(join(tmpdir(), "codex-gateway-progress-work-"));
+    const fakeCodex = join(projectRoot, "fake-codex");
+    writeFileSync(
+      fakeCodex,
+      [
+        "#!/usr/bin/env bun",
+        "const outputIndex = process.argv.indexOf('--output-last-message');",
+        "console.log(JSON.stringify({ type: 'item.started', item: { id: 'tool_1', type: 'command_execution', command: 'pwd' } }));",
+        "await Bun.sleep(80);",
+        "console.log(JSON.stringify({ type: 'item.completed', item: { id: 'tool_1', type: 'command_execution', aggregated_output: '/tmp/work', status: 'completed' } }));",
+        "console.log(JSON.stringify({ type: 'item.completed', item: { id: 'answer_1', type: 'agent_message', text: '完成' } }));",
+        "await Bun.write(process.argv[outputIndex + 1], '完成');",
+      ].join("\n"),
+      { mode: 0o700 }
+    );
+    chmodSync(fakeCodex, 0o700);
+    const events: unknown[] = [];
+    let settled = false;
+    let releaseProgress!: () => void;
+    const progressReceived = new Promise<void>((resolve) => {
+      releaseProgress = resolve;
+    });
+
+    const run = runCodex({
+      cwd: workdir,
+      prompt: "测试进度",
+      command: fakeCodex,
+      projectRoot,
+      onProgress(event) {
+        events.push(event);
+        releaseProgress();
+      },
+    }).finally(() => {
+      settled = true;
+    });
+
+    await progressReceived;
+    expect(settled).toBe(false);
+    await run;
+    expect(events).toEqual([
+      {
+        type: "tool_start",
+        name: "command_execution",
+        input: { command: "pwd" },
+        toolUseId: "tool_1",
+      },
+      {
+        type: "tool_result",
+        name: "command_execution",
+        text: "/tmp/work",
+        isError: false,
+        toolUseId: "tool_1",
+      },
+      { type: "assistant_text", text: "完成" },
+    ]);
   });
 
   test("appends real usage after a successful Codex CLI run", async () => {

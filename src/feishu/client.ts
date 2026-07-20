@@ -1,13 +1,26 @@
 import type { Readable } from "node:stream";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import type { FeishuAccountConfig } from "../config.js";
-import type { FeishuEventClient, FeishuMediaClient } from "./channel.js";
+import type { FeishuEventClient, FeishuMediaClient, FeishuReactionClient } from "./channel.js";
 import { type FeishuMessageClient, createSdkFeishuMessageClient } from "./send.js";
 
 export interface FeishuSdkClients {
   eventClient: FeishuEventClient;
   mediaClient: FeishuMediaClient;
   messageClient: FeishuMessageClient;
+  reactionClient: FeishuReactionClient;
+}
+
+interface FeishuSdkMessageReactionApi {
+  create(input: unknown): Promise<{ data?: { reaction_id?: string } }>;
+  delete(input: unknown): Promise<unknown>;
+}
+
+interface FeishuSdkReactionClientLike {
+  im?: {
+    v1?: { messageReaction?: FeishuSdkMessageReactionApi };
+    messageReaction?: FeishuSdkMessageReactionApi;
+  };
 }
 
 interface FeishuWsClientLike {
@@ -47,8 +60,42 @@ export function createFeishuSdkClients(account: FeishuAccountConfig): FeishuSdkC
   return {
     eventClient: createFeishuEventClient(wsClient),
     mediaClient: createFeishuMediaClient(client as FeishuSdkMediaClientLike),
-    messageClient: createSdkFeishuMessageClient(client),
+    messageClient: createSdkFeishuMessageClient(client, {
+      appId: account.appId,
+      appSecret: account.appSecret,
+    }),
+    reactionClient: createSdkFeishuReactionClient(client),
   };
+}
+
+export function createSdkFeishuReactionClient(
+  client: FeishuSdkReactionClientLike
+): FeishuReactionClient {
+  return {
+    async addTypingReaction(input) {
+      const response = await resolveMessageReactionApi(client).create({
+        path: { message_id: input.messageId },
+        data: { reaction_type: { emoji_type: "Typing" } },
+      });
+      return { reactionId: response?.data?.reaction_id ?? null };
+    },
+    async removeTypingReaction(input) {
+      await resolveMessageReactionApi(client).delete({
+        path: {
+          message_id: input.messageId,
+          reaction_id: input.reactionId,
+        },
+      });
+    },
+  };
+}
+
+function resolveMessageReactionApi(
+  client: FeishuSdkReactionClientLike
+): FeishuSdkMessageReactionApi {
+  const api = client.im?.v1?.messageReaction ?? client.im?.messageReaction;
+  if (!api) throw new Error("Feishu message reaction API is unavailable");
+  return api;
 }
 
 export function createFeishuEventClient(wsClient: FeishuWsClientLike): FeishuEventClient {

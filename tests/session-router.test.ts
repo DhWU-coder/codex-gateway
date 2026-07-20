@@ -87,6 +87,42 @@ describe("Codex session router", () => {
     expect(outputs).toEqual(["om_1:第一条回复", "om_2:第二条回复"]);
   });
 
+  test("keeps queued progress events bound to each request callback", async () => {
+    let runCount = 0;
+    const progress: string[] = [];
+    const router = new CodexSessionRouter({
+      cwd: "/tmp/work",
+      historyBaseDir: mkdtempSync(join(tmpdir(), "codex-gateway-router-progress-")),
+      runner: async (input) => {
+        runCount += 1;
+        input.onProgress?.({
+          type: "tool_start",
+          name: "command_execution",
+          input: { command: `command-${runCount}` },
+        });
+        return { text: `回复 ${runCount}`, sessionId: input.sessionId ?? "codex-session-1" };
+      },
+    });
+
+    const first = router.send(
+      "dm:ou_sender",
+      "第一条",
+      [],
+      undefined,
+      (event) => progress.push(`om_1:${event.type}`)
+    );
+    const second = router.send(
+      "dm:ou_sender",
+      "第二条",
+      [],
+      undefined,
+      (event) => progress.push(`om_2:${event.type}`)
+    );
+    await Promise.all([first, second]);
+
+    expect(progress).toEqual(["om_1:tool_start", "om_2:tool_start"]);
+  });
+
   test("keeps the previous archive when resetting to a new session", async () => {
     let callCount = 0;
     const router = new CodexSessionRouter({
@@ -227,6 +263,69 @@ describe("Codex session router", () => {
     });
     expect(second[0].aiSummary).toEqual(first[0].aiSummary);
     expect(summaryCalls).toBe(1);
+  });
+
+  test("uses summary model and history limits, and supports cache refresh", async () => {
+    const summaryInputs: Array<{ model?: string; prompt: string }> = [];
+    let replyCount = 0;
+    const router = new CodexSessionRouter({
+      cwd: "/tmp/work",
+      model: "gpt-5",
+      summaryModel: "gpt-5-mini",
+      summaryMaxMessages: 2,
+      historyBaseDir: mkdtempSync(join(tmpdir(), "codex-gateway-router-summary-config-")),
+      createArchiveId: createIdFactory("archive-summary-config"),
+      runner: async (input) => {
+        if (input.prompt.startsWith("总结以下飞书历史 session")) {
+          summaryInputs.push({ model: input.model, prompt: input.prompt });
+          return {
+            text: `{"topic":"摘要 ${summaryInputs.length}","keyInfo":"配置生效","recentAction":"已完成"}`,
+          };
+        }
+        replyCount += 1;
+        return { text: `回复 ${replyCount}`, sessionId: "codex-summary-config" };
+      },
+    });
+    await router.send("dm:ou_sender", "第一条问题");
+    await router.send("dm:ou_sender", "第二条问题");
+
+    const cached = await router.summarizeArchivedSession("dm:ou_sender");
+    const refreshed = await router.summarizeArchivedSession("dm:ou_sender", undefined, true);
+
+    expect(cached?.aiSummary?.topic).toBe("摘要 1");
+    expect(refreshed?.aiSummary?.topic).toBe("摘要 2");
+    expect(summaryInputs).toHaveLength(2);
+    expect(summaryInputs[0]?.model).toBe("gpt-5-mini");
+    expect(summaryInputs[0]?.prompt).not.toContain("第一条问题");
+    expect(summaryInputs[0]?.prompt).toContain("第二条问题");
+  });
+
+  test("isolates failures while summarizing multiple archived sessions", async () => {
+    let summaryCalls = 0;
+    const router = new CodexSessionRouter({
+      cwd: "/tmp/work",
+      summaryConcurrency: 2,
+      historyBaseDir: mkdtempSync(join(tmpdir(), "codex-gateway-router-summary-errors-")),
+      createArchiveId: createIdFactory("archive-one", "archive-two"),
+      runner: async (input) => {
+        if (input.prompt.startsWith("总结以下飞书历史 session")) {
+          summaryCalls += 1;
+          if (summaryCalls === 1) throw new Error("摘要模型暂时不可用");
+          return { text: '{"topic":"第二项","keyInfo":"成功","recentAction":"完成"}' };
+        }
+        return { text: "已记录", sessionId: `codex-${Date.now()}` };
+      },
+    });
+    await router.send("dm:ou_sender", "第一项任务");
+    router.resetSession("dm:ou_sender");
+    await router.send("dm:ou_sender", "第二项任务");
+
+    const summaries = await router.summarizeArchivedSessions("dm:ou_sender", "all");
+
+    expect(summaries).toHaveLength(2);
+    expect(summaries.filter((item) => item.aiSummary)).toHaveLength(1);
+    expect(summaries.filter((item) => item.summaryError)).toHaveLength(1);
+    expect(summaries.find((item) => item.summaryError)?.summaryError).toContain("摘要模型暂时不可用");
   });
 
   test("exposes current archive details with its messages", async () => {

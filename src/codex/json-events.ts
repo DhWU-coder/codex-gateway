@@ -6,6 +6,18 @@ export interface ParsedCodexJsonEvents {
   usage?: CodexUsage;
 }
 
+export type CodexProgressEvent =
+  | { type: "assistant_text"; text: string }
+  | { type: "tool_start"; name: string; input?: unknown; toolUseId?: string }
+  | {
+      type: "tool_result";
+      name?: string;
+      text: string;
+      isError?: boolean;
+      toolUseId?: string;
+    }
+  | { type: "stderr"; text: string };
+
 export interface CodexUsage {
   total: number;
   input: number;
@@ -49,6 +61,53 @@ export function parseCodexJsonEvents(output: string): ParsedCodexJsonEvents {
   };
 }
 
+export function parseCodexProgressLine(line: string): CodexProgressEvent[] {
+  const parsed = parseJsonRecord(line);
+  if (!parsed) return [];
+  const type = stringField(parsed.type);
+  const item = isRecord(parsed.item) ? parsed.item : undefined;
+
+  if (item && (type === "item.started" || type === "item.completed")) {
+    const itemType = stringField(item.type) || "tool";
+    if (itemType === "agent_message" || itemType === "assistant_message") {
+      const text = readItemText(item);
+      return type === "item.completed" && text ? [{ type: "assistant_text", text }] : [];
+    }
+    if (itemType === "reasoning") return [];
+
+    const toolUseId = stringField(item.id) || undefined;
+    if (type === "item.started") {
+      const input = readToolInput(item);
+      return [
+        {
+          type: "tool_start",
+          name: itemType,
+          ...(input === undefined ? {} : { input }),
+          ...(toolUseId ? { toolUseId } : {}),
+        },
+      ];
+    }
+
+    return [
+      {
+        type: "tool_result",
+        name: itemType,
+        text: readToolResult(item),
+        isError: isFailedStatus(item.status),
+        ...(toolUseId ? { toolUseId } : {}),
+      },
+    ];
+  }
+
+  const assistantText = extractAssistantText(parsed);
+  if (assistantText) return [{ type: "assistant_text", text: assistantText }];
+  if (type === "error" || type === "turn.failed") {
+    const text = readToolResult(parsed);
+    return text ? [{ type: "stderr", text }] : [];
+  }
+  return [];
+}
+
 function findSessionId(event: Record<string, unknown>): string | undefined {
   const direct =
     stringField(event.session_id) ||
@@ -78,6 +137,12 @@ function findSessionId(event: Record<string, unknown>): string | undefined {
 
 function extractAssistantText(event: Record<string, unknown>): string {
   const type = stringField(event.type);
+  if (type === "item.completed" && isRecord(event.item)) {
+    const itemType = stringField(event.item.type);
+    return itemType === "agent_message" || itemType === "assistant_message"
+      ? readItemText(event.item)
+      : "";
+  }
   if (type === "agent_message" || type === "assistant_message") {
     return (
       stringField(event.message) ||
@@ -93,6 +158,62 @@ function extractAssistantText(event: Record<string, unknown>): string {
     return stringField(event.result) || stringField(event.text);
   }
   return "";
+}
+
+function parseJsonRecord(line: string): Record<string, unknown> | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function readItemText(item: Record<string, unknown>): string {
+  return (
+    stringField(item.text) ||
+    stringField(item.message) ||
+    stringField(item.content) ||
+    extractTextFromMessage(item.message)
+  ).trim();
+}
+
+function readToolInput(item: Record<string, unknown>): unknown {
+  if (item.input !== undefined) return item.input;
+  if (item.arguments !== undefined) return item.arguments;
+  const command = stringField(item.command);
+  if (command) return { command };
+  if (item.changes !== undefined) return { changes: item.changes };
+  if (item.query !== undefined) return { query: item.query };
+  return undefined;
+}
+
+function readToolResult(item: Record<string, unknown>): string {
+  const direct =
+    stringField(item.aggregated_output) ||
+    stringField(item.output) ||
+    stringField(item.result) ||
+    stringField(item.text) ||
+    stringField(item.message) ||
+    stringField(item.error);
+  if (direct) return direct.trim();
+
+  for (const value of [item.changes, item.content, item.details]) {
+    if (value === undefined) continue;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return stringField(item.status);
+}
+
+function isFailedStatus(value: unknown): boolean {
+  const status = stringField(value).toLowerCase();
+  return status === "failed" || status === "error" || status === "cancelled";
 }
 
 function findModel(event: Record<string, unknown>): string | undefined {

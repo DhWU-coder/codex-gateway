@@ -1,5 +1,6 @@
 import type { CodexRunner } from "../codex/runner.js";
 import { runCodex } from "../codex/runner.js";
+import type { CodexProgressEvent } from "../codex/json-events.js";
 import type { CodexSandboxMode } from "../config.js";
 import {
   type SessionAiSummary,
@@ -23,7 +24,13 @@ export interface CodexSessionRouterOptions {
   extraArgs?: string[];
   projectRoot?: string;
   createArchiveId?: () => string;
+  historyMaxMessages?: number;
+  historyMaxSessions?: number;
+  summaryModel?: string;
+  summaryMaxMessages?: number;
+  summaryConcurrency?: number;
   onOutput?: (conversationKey: string, text: string) => void | Promise<void>;
+  onProgress?: (conversationKey: string, event: CodexProgressEvent) => void;
 }
 
 interface RoutedSession {
@@ -47,7 +54,8 @@ export interface ArchivedSessionDetail {
 }
 
 export interface SessionSummaryWithAi extends SessionSummary {
-  aiSummary: SessionAiSummary;
+  aiSummary?: SessionAiSummary;
+  summaryError?: string;
 }
 
 export interface CodexSessionStatus {
@@ -60,9 +68,12 @@ export interface CodexSessionStatus {
 }
 
 export type CodexSessionOutputHandler = (text: string) => void | Promise<void>;
+export type CodexSessionProgressHandler = (event: CodexProgressEvent) => void;
 
-const SESSION_HISTORY_LIMIT = 20;
-const SESSION_SUMMARY_CONCURRENCY = 5;
+const DEFAULT_HISTORY_LIMIT = 50;
+const DEFAULT_SUMMARY_LIMIT = 50;
+const DEFAULT_SUMMARY_CONCURRENCY = 5;
+const SESSION_SUMMARY_PROMPT_VERSION = 2;
 
 export class CodexSessionRouter {
   private readonly historyStore: SessionHistoryStore;
@@ -70,7 +81,11 @@ export class CodexSessionRouter {
   private readonly sessions = new Map<string, RoutedSession>();
 
   constructor(private readonly options: CodexSessionRouterOptions) {
-    this.historyStore = new SessionHistoryStore(options.historyBaseDir, options.createArchiveId);
+    this.historyStore = new SessionHistoryStore(
+      options.historyBaseDir,
+      options.createArchiveId,
+      positiveInteger(options.historyMaxSessions, 100)
+    );
     this.runner = options.runner ?? runCodex;
   }
 
@@ -78,12 +93,13 @@ export class CodexSessionRouter {
     conversationKey: string,
     prompt: string,
     imagePaths: string[] = [],
-    onOutput?: CodexSessionOutputHandler
+    onOutput?: CodexSessionOutputHandler,
+    onProgress?: CodexSessionProgressHandler
   ): Promise<void> {
     const routed = this.getOrCreateRoutedSession(conversationKey);
     routed.queue = routed.queue
       .catch(() => undefined)
-      .then(() => this.runQueuedMessage(routed, prompt, imagePaths, onOutput));
+      .then(() => this.runQueuedMessage(routed, prompt, imagePaths, onOutput, onProgress));
     return routed.queue;
   }
 
@@ -142,7 +158,10 @@ export class CodexSessionRouter {
     if (!session) return null;
     return {
       session,
-      messages: this.historyStore.readRecentMessages(session, SESSION_HISTORY_LIMIT),
+      messages: this.historyStore.readRecentMessages(
+        session,
+        positiveInteger(this.options.historyMaxMessages, DEFAULT_HISTORY_LIMIT)
+      ),
     };
   }
 
@@ -202,10 +221,49 @@ export class CodexSessionRouter {
     const sessions = limitSessions(this.listArchivedSessions(conversationKey), count).filter(
       (session) => session.messageCount > 0
     );
-    return mapWithConcurrency(sessions, SESSION_SUMMARY_CONCURRENCY, async (session) => ({
-      ...session,
-      aiSummary: await this.summarizeArchivedSession(session),
-    }));
+    return mapWithConcurrency(
+      sessions,
+      positiveInteger(this.options.summaryConcurrency, DEFAULT_SUMMARY_CONCURRENCY),
+      async (session) => {
+        try {
+          return {
+            ...session,
+            aiSummary: await this.generateArchivedSessionSummary(session),
+          };
+        } catch (error) {
+          return {
+            ...session,
+            summaryError: errorMessage(error),
+          };
+        }
+      }
+    );
+  }
+
+  async summarizeArchivedSession(
+    conversationKey: string,
+    selection?: number | string,
+    refresh = false
+  ): Promise<SessionSummaryWithAi | null> {
+    const session =
+      selection === undefined
+        ? this.getCurrentArchivedSession(conversationKey)
+        : this.selectArchivedSession(conversationKey, selection);
+    if (!session) return null;
+    if (session.messageCount === 0) {
+      return { ...session, summaryError: "这个 session 还没有可总结的消息。" };
+    }
+    try {
+      return {
+        ...session,
+        aiSummary: await this.generateArchivedSessionSummary(session, refresh),
+      };
+    } catch (error) {
+      return {
+        ...session,
+        summaryError: errorMessage(error),
+      };
+    }
   }
 
   private createRoutedSession(metadata: SessionMetadata): RoutedSession {
@@ -232,7 +290,8 @@ export class CodexSessionRouter {
     routed: RoutedSession,
     prompt: string,
     imagePaths: string[],
-    onOutput?: CodexSessionOutputHandler
+    onOutput?: CodexSessionOutputHandler,
+    onProgress?: CodexSessionProgressHandler
   ): Promise<void> {
     if (this.sessions.get(routed.conversationKey) !== routed) return;
     const abortController = new AbortController();
@@ -242,12 +301,27 @@ export class CodexSessionRouter {
     const resume = Boolean(metadata.nativeSessionStarted && metadata.sessionId);
     const previousMessages = resume
       ? []
-      : this.historyStore.readRecentMessages(metadata, SESSION_HISTORY_LIMIT);
+      : this.historyStore.readRecentMessages(
+          metadata,
+          positiveInteger(this.options.historyMaxMessages, DEFAULT_HISTORY_LIMIT)
+        );
     const runPrompt = resume ? prompt : buildPromptWithFallbackHistory(previousMessages, prompt);
     this.historyStore.appendMessage(metadata, { role: "user", text: prompt });
 
     try {
-      const result = await this.runner(this.buildRunnerInput(runPrompt, metadata, resume, imagePaths, abortController.signal));
+      const result = await this.runner(
+        this.buildRunnerInput(
+          runPrompt,
+          metadata,
+          resume,
+          imagePaths,
+          abortController.signal,
+          (event) => {
+            onProgress?.(event);
+            this.options.onProgress?.(routed.conversationKey, event);
+          }
+        )
+      );
 
       if (this.sessions.get(routed.conversationKey) !== routed) return;
       metadata.sessionId = result.sessionId || metadata.sessionId;
@@ -277,12 +351,14 @@ export class CodexSessionRouter {
     metadata: SessionMetadata,
     resume: boolean,
     imagePaths: string[],
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    onProgress?: CodexSessionProgressHandler,
+    model = this.options.model
   ) {
     return {
       cwd: this.options.cwd,
       prompt,
-      model: this.options.model,
+      model,
       sessionId: resume ? metadata.sessionId : undefined,
       resume,
       imagePaths,
@@ -295,6 +371,7 @@ export class CodexSessionRouter {
       extraArgs: this.options.extraArgs,
       signal,
       projectRoot: this.options.projectRoot,
+      onProgress,
     };
   }
 
@@ -311,15 +388,38 @@ export class CodexSessionRouter {
     return sessions.find((session) => session.archiveId === selection) ?? null;
   }
 
-  private async summarizeArchivedSession(session: SessionSummary): Promise<SessionAiSummary> {
-    const cached = this.historyStore.readSessionSummary(session);
+  private async generateArchivedSessionSummary(
+    session: SessionSummary,
+    refresh = false
+  ): Promise<SessionAiSummary> {
+    const model = this.options.summaryModel ?? this.options.model;
+    const cacheContext = {
+      model,
+      promptVersion: SESSION_SUMMARY_PROMPT_VERSION,
+    };
+    const cached = refresh ? null : this.historyStore.readSessionSummary(session, cacheContext);
     if (cached) return cached;
 
-    const messages = this.historyStore.readRecentMessages(session, SESSION_HISTORY_LIMIT);
-    const result = await this.runner(
-      this.buildRunnerInput(buildSessionSummaryPrompt(session, messages), session, false, [])
+    const messages = this.historyStore.readRecentMessages(
+      session,
+      positiveInteger(this.options.summaryMaxMessages, DEFAULT_SUMMARY_LIMIT)
     );
-    return this.historyStore.writeSessionSummary(session, parseSessionSummaryText(result.text));
+    const result = await this.runner(
+      this.buildRunnerInput(
+        buildSessionSummaryPrompt(session, messages),
+        session,
+        false,
+        [],
+        undefined,
+        undefined,
+        model
+      )
+    );
+    return this.historyStore.writeSessionSummary(
+      session,
+      parseSessionSummaryText(result.text),
+      cacheContext
+    );
   }
 }
 
@@ -392,6 +492,14 @@ function firstNonEmptyLine(text: string): string {
       .map((line) => line.trim())
       .find(Boolean) ?? ""
   );
+}
+
+function positiveInteger(value: number | undefined, fallback: number): number {
+  return Number.isInteger(value) && Number(value) > 0 ? Number(value) : fallback;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function limitSessions<T>(sessions: T[], count: number | "all"): T[] {

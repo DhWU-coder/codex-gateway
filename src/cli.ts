@@ -74,6 +74,14 @@ channels:
         cwd: ~/.codex-gateway/workspace/donghao
         historyBaseDir: ~/.codex-gateway/channels/feishu/donghao/sessions
         sendProgressReplies: false
+        messageDedupeTtlMs: 600000
+        history:
+          maxMessages: 50
+          maxSessions: 100
+        summary:
+          model: gpt-5
+          maxMessages: 50
+          concurrency: 5
 `;
 }
 

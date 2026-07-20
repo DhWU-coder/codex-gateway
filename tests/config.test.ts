@@ -47,11 +47,41 @@ describe("gateway config", () => {
       cwd: "/Users/tester/.codex-gateway/workspace/personal",
       model: "gpt-5",
       domain: "feishu",
+      history: { maxMessages: 50, maxSessions: 100 },
+      summary: { maxMessages: 50, concurrency: 5 },
+      messageDedupeTtlMs: 600000,
     });
     expect(config.channels.feishu.accounts[1]).toMatchObject({
       id: "team",
       cwd: "/tmp/team",
       model: "gpt-5-codex",
+    });
+  });
+
+  test("loads Feishu history, summary and dedupe limits", () => {
+    const config = loadGatewayConfigFromObject(
+      {
+        channels: {
+          feishu: {
+            accounts: [
+              {
+                id: "tuned",
+                enabled: true,
+                history: { maxMessages: 80, maxSessions: 20 },
+                summary: { model: "gpt-5-mini", maxMessages: 30, concurrency: 2 },
+                messageDedupeTtlMs: 120000,
+              },
+            ],
+          },
+        },
+      },
+      { homeDir: "/Users/tester", env: {} }
+    );
+
+    expect(config.channels.feishu.accounts[0]).toMatchObject({
+      history: { maxMessages: 80, maxSessions: 20 },
+      summary: { model: "gpt-5-mini", maxMessages: 30, concurrency: 2 },
+      messageDedupeTtlMs: 120000,
     });
   });
 

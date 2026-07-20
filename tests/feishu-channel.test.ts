@@ -265,6 +265,19 @@ describe("Feishu channel", () => {
             },
           },
         ],
+        summarizeArchivedSession: async (_conversationKey, selection, refresh) => {
+          actions.push(`summary:${selection ?? "current"}:${refresh}`);
+          return {
+            ...sessions[1],
+            aiSummary: {
+              topic: "历史总结",
+              keyInfo: "保留上下文",
+              recentAction: "刷新缓存",
+              messageCount: 4,
+              updatedAt: "2026-07-20T00:00:00.000Z",
+            },
+          };
+        },
       },
     });
 
@@ -278,6 +291,7 @@ describe("Feishu channel", () => {
     await channel.handleEvent(textPayload("/session 2", "om_session_2"));
     await channel.handleEvent(textPayload("/resume 2", "om_resume"));
     await channel.handleEvent(textPayload("/fork 1", "om_fork"));
+    await channel.handleEvent(textPayload("/summary 2 --refresh", "om_one_summary"));
 
     expect(routed).toEqual([]);
     expect(actions).toEqual([
@@ -286,6 +300,7 @@ describe("Feishu channel", () => {
       "stop:dm:ou_sender",
       "resume:2",
       "fork:1",
+      "summary:2:true",
     ]);
     expect(replies.find((reply) => reply.startsWith("om_status:"))).toContain("账号：test");
     expect(replies.find((reply) => reply.startsWith("om_status:"))).toContain("Archive：archive-current");
@@ -299,6 +314,7 @@ describe("Feishu channel", () => {
     expect(replies.find((reply) => reply.startsWith("om_session_2:"))).toContain("用户：\n历史问题");
     expect(replies.find((reply) => reply.startsWith("om_resume:"))).toContain("原生 session：codex-old");
     expect(replies.find((reply) => reply.startsWith("om_fork:"))).toContain("fork 自：archive-current");
+    expect(replies.find((reply) => reply.startsWith("om_one_summary:"))).toContain("主题：历史总结");
     rmSync(cwd, { recursive: true, force: true });
   });
 
@@ -338,6 +354,214 @@ describe("Feishu channel", () => {
       "没有找到第 9 个 session。",
       "没有找到对应的历史 session。",
     ]);
+  });
+
+  test("relays assistant progress once, tracks it, and manages Typing reaction", async () => {
+    const replies: string[] = [];
+    const reactions: string[] = [];
+    const channel = new FeishuChannel({
+      account: { ...account("/tmp/work"), sendProgressReplies: true },
+      outputQuietMs: 1000,
+      messageClient: {
+        async replyText(input) {
+          replies.push(input.text);
+        },
+        async sendText() {},
+      },
+      reactionClient: {
+        async addTypingReaction(input) {
+          reactions.push(`add:${input.messageId}`);
+          return { reactionId: "reaction-1" };
+        },
+        async removeTypingReaction(input) {
+          reactions.push(`remove:${input.messageId}:${input.reactionId}`);
+        },
+      },
+      router: {
+        async send(_conversationKey, _prompt, _images, onOutput, onProgress) {
+          onProgress?.({ type: "tool_start", name: "command_execution" });
+          onProgress?.({ type: "assistant_text", text: "实时答案" });
+          await onOutput?.("实时答案");
+        },
+        resetSession() {},
+        stopSession: () => true,
+        stopAll() {},
+        getStatus: () => ({ running: false }),
+      },
+    });
+
+    await channel.handleEvent(textPayload("执行任务", "om_progress"));
+
+    expect(replies).toEqual(["实时答案"]);
+    expect(reactions).toEqual([
+      "add:om_progress",
+      "remove:om_progress:reaction-1",
+    ]);
+    expect(channel.getStatus()).toMatchObject({
+      activeSessions: 0,
+      sendProgressReplies: true,
+      recentMessages: [
+        {
+          messageId: "om_progress",
+          stage: "completed",
+          output: "实时答案",
+          progressEvents: [
+            { type: "tool_start", name: "command_execution" },
+            { type: "assistant_text", text: "实时答案" },
+          ],
+        },
+      ],
+    });
+  });
+
+  test("reports invalid Codex return-file directives", async () => {
+    const replies: string[] = [];
+    const channel = new FeishuChannel({
+      account: account("/tmp/work"),
+      messageClient: {
+        async replyText(input) {
+          replies.push(input.text);
+        },
+        async sendText() {},
+      },
+      router: {
+        async send(_conversationKey, _prompt, _images, onOutput) {
+          await onOutput?.("[[codex:file:missing.html]]");
+        },
+        resetSession() {},
+        stopSession: () => true,
+        stopAll() {},
+        getStatus: () => ({ running: false }),
+      },
+    });
+
+    await channel.handleEvent(textPayload("生成文件", "om_missing_file"));
+
+    expect(replies).toHaveLength(1);
+    expect(replies[0]).toContain("文件回传失败");
+    expect(replies[0]).toContain("missing.html");
+  });
+
+  test("hides return-file directives from progress replies", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "codex-gateway-progress-file-"));
+    const filePath = join(cwd, "result.html");
+    writeFileSync(filePath, "result");
+    const replies: string[] = [];
+    const files: string[] = [];
+    const finalText = "页面已生成。\n[[codex:file:result.html]]";
+    const channel = new FeishuChannel({
+      account: { ...account(cwd), sendProgressReplies: true },
+      outputQuietMs: 1000,
+      messageClient: {
+        async replyText(input) {
+          replies.push(input.text);
+        },
+        async sendText() {},
+        async replyFile(input) {
+          files.push(input.filePath);
+        },
+      },
+      router: {
+        async send(_conversationKey, _prompt, _images, onOutput, onProgress) {
+          onProgress?.({ type: "assistant_text", text: finalText });
+          await onOutput?.(finalText);
+        },
+        resetSession() {},
+        stopSession: () => true,
+        stopAll() {},
+        getStatus: () => ({ running: false }),
+      },
+    });
+
+    await channel.handleEvent(textPayload("生成页面", "om_progress_file"));
+
+    expect(replies).toEqual(["页面已生成。"]);
+    expect(files).toEqual([filePath]);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("preserves whitespace across assistant progress fragments", async () => {
+    const replies: string[] = [];
+    const channel = new FeishuChannel({
+      account: { ...account("/tmp/work"), sendProgressReplies: true },
+      outputQuietMs: 1000,
+      messageClient: {
+        async replyText(input) {
+          replies.push(input.text);
+        },
+        async sendText() {},
+      },
+      router: {
+        async send(_conversationKey, _prompt, _images, onOutput, onProgress) {
+          onProgress?.({ type: "assistant_text", text: "实时 " });
+          onProgress?.({ type: "assistant_text", text: "答案" });
+          await onOutput?.("实时 答案");
+        },
+        resetSession() {},
+        stopSession: () => true,
+        stopAll() {},
+        getStatus: () => ({ running: false }),
+      },
+    });
+
+    await channel.handleEvent(textPayload("流式输出", "om_progress_space"));
+
+    expect(replies).toEqual(["实时 答案"]);
+  });
+
+  test("deduplicates messages only within the configured TTL", async () => {
+    let now = 0;
+    let routed = 0;
+    const channel = new FeishuChannel({
+      account: { ...account("/tmp/work"), messageDedupeTtlMs: 100 },
+      now: () => now,
+      router: {
+        async send() {
+          routed += 1;
+        },
+        resetSession() {},
+        stopSession: () => true,
+        stopAll() {},
+        getStatus: () => ({ running: false }),
+      },
+    });
+
+    await channel.handleEvent(textPayload("同一条消息", "om_dedupe"));
+    now = 50;
+    await channel.handleEvent(textPayload("同一条消息", "om_dedupe"));
+    now = 101;
+    await channel.handleEvent(textPayload("同一条消息", "om_dedupe"));
+
+    expect(routed).toBe(2);
+  });
+
+  test("updates progress replies at runtime and exposes connection checks", async () => {
+    const channel = new FeishuChannel({
+      account: account("/tmp/work"),
+      messageClient: {
+        async replyText() {},
+        async sendText() {},
+        async testConnection() {
+          return {
+            ok: true,
+            latencyMs: 12,
+            checks: [{ name: "tenant_access_token", ok: true }],
+          };
+        },
+      },
+      router: {
+        async send() {},
+        resetSession() {},
+        stopSession: () => true,
+        stopAll() {},
+        getStatus: () => ({ running: false }),
+      },
+    });
+
+    channel.updateConfig({ sendProgressReplies: true });
+
+    expect(channel.getStatus()).toMatchObject({ sendProgressReplies: true });
+    expect(await channel.testConnection()).toMatchObject({ ok: true, latencyMs: 12 });
   });
 });
 

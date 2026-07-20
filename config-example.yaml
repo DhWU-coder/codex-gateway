@@ -26,4 +26,17 @@ channels:
         model: gpt-5
         cwd: ~/.codex-gateway/workspace/donghao
         historyBaseDir: ~/.codex-gateway/channels/feishu/donghao/sessions
+        # 是否把 Codex 的实时文本过程合并后回复到飞书；也可在 Web UI 临时切换
         sendProgressReplies: false
+        # 同一飞书 message_id 在窗口内只处理一次
+        messageDedupeTtlMs: 600000
+        history:
+          # 新会话缺少原生 Codex session 时，最多回填的历史消息数
+          maxMessages: 50
+          # 每个飞书会话最多保留的归档数
+          maxSessions: 100
+        summary:
+          # 留空时跟随账号模型
+          model: gpt-5
+          maxMessages: 50
+          concurrency: 5

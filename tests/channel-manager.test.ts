@@ -45,7 +45,76 @@ describe("Channel manager", () => {
       "disabled",
     ]);
   });
+
+  test("routes runtime operations to a selected channel", async () => {
+    const updates: unknown[] = [];
+    const manager = new ChannelManager({
+      config: gatewayConfig([account("test")]),
+      createFeishuChannel: () => ({
+        id: "feishu:test",
+        async start() {},
+        async stop() {},
+        getStatus: () => ({ id: "feishu:test", status: "connected" }),
+        updateConfig(config) {
+          updates.push(config);
+        },
+        async testConnection() {
+          return { ok: true, checks: [{ name: "tenant_access_token", ok: true }] };
+        },
+        listArchivedSessions: () => [
+          {
+            archiveId: "archive-1",
+            conversationKey: "dm:ou_sender",
+            cwd: "/tmp/test",
+            nativeSessionStarted: true,
+            createdAt: "2026-07-20T00:00:00.000Z",
+            lastActiveAt: "2026-07-20T00:01:00.000Z",
+            messageCount: 2,
+            preview: "测试任务",
+            current: true,
+          },
+        ],
+        getArchivedSessionDetail: () => null,
+        summarizeArchivedSession: async () => null,
+      }),
+    });
+
+    expect(manager.updateChannelConfig("feishu:test", { sendProgressReplies: true })).toBe(true);
+    expect(updates).toEqual([{ sendProgressReplies: true }]);
+    expect(await manager.testChannelConnection("feishu:test")).toMatchObject({ ok: true });
+    expect(manager.listChannelArchives("feishu:test", "dm:ou_sender")).toHaveLength(1);
+    expect(await manager.summarizeChannelArchive("feishu:test", "dm:ou_sender")).toBeNull();
+  });
+
+  test("returns useful failures for missing or unsupported channels", async () => {
+    const manager = new ChannelManager({
+      config: gatewayConfig([account("test")]),
+      createFeishuChannel: () => ({
+        id: "feishu:test",
+        async start() {},
+        async stop() {},
+        getStatus: () => ({ id: "feishu:test", status: "connected" }),
+      }),
+    });
+
+    expect(manager.updateChannelConfig("missing", { sendProgressReplies: true })).toBe(false);
+    expect(await manager.testChannelConnection("missing")).toMatchObject({ ok: false });
+    expect(manager.listChannelArchives("feishu:test", "dm:ou_sender")).toEqual([]);
+  });
 });
+
+function account(id: string): FeishuAccountConfig {
+  return {
+    id,
+    enabled: true,
+    appId: "cli_a",
+    appSecret: "secret",
+    domain: "feishu",
+    cwd: `/tmp/${id}`,
+    historyBaseDir: `/tmp/history-${id}`,
+    sendProgressReplies: false,
+  };
+}
 
 function gatewayConfig(accounts: FeishuAccountConfig[]): GatewayConfig {
   return {

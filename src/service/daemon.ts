@@ -51,6 +51,7 @@ export async function startServiceDaemon(
     port: options.port,
     stateProvider: () => state,
     channelStatusProvider: () => channelManager.getStatus(),
+    channelManager,
     stopService: stop,
   });
   const host = "127.0.0.1";

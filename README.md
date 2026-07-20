@@ -46,12 +46,13 @@ codex-gateway status
 - `/status` 查看当前会话状态。
 - `/sessions [数量|all]` 按最近活跃时间查看历史会话。
 - `/sessions [数量|all] --summary [数量|all]` 使用 Codex 生成历史会话摘要；省略摘要数量时默认总结 10 个会话。
+- `/summary` 总结当前会话，`/summary N` 总结第 N 个历史会话；追加 `--refresh` 会忽略缓存并重新生成。
 - `/session` 查看当前会话详情，`/session N` 查看历史列表中第 N 个会话的最近消息。
 - `/resume N` 恢复第 N 个已有 Codex 原生 session 的历史会话。
 - `/fork N` 复制第 N 个会话的历史，开启一个不复用原生 session 的分支会话。
 - `/file 路径` 或 `/sendfile 路径` 手动回传工作目录内的文件。
 
-`/sessions` 返回的编号会随最近活跃时间变化。执行中的会话不能 `/resume` 或 `/fork`，请等待完成或先发送 `/stop`。会话摘要按消息数缓存，历史没有变化时不会重复调用 Codex。
+`/sessions` 返回的编号会随最近活跃时间变化。执行中的会话不能 `/resume` 或 `/fork`，请等待完成或先发送 `/stop`。会话摘要会按消息数、摘要模型和提示词版本缓存；批量总结中单个 session 失败不会影响其他结果。
 
 ## 文件回传
 
@@ -62,6 +63,21 @@ Codex 需要回传生成文件时，会在最终回复中单独输出：
 ```
 
 网关会移除这行指令，先发送正常回复，再上传文件。相对路径以当前飞书账号的 Codex 工作目录为基准；绝对路径也必须位于该目录内。文件必须存在、非空且不超过 30MB。
+
+文件不存在、越过工作目录或不符合大小限制时，机器人会在原消息下回复具体的回传失败原因。
+
+## Web UI
+
+Web UI 仅监听本机 `127.0.0.1`，默认地址是 `http://127.0.0.1:18788/`，包含：
+
+- 飞书 channel 连接状态与无消息连接测试。
+- 最近消息、会话状态、耗时、Codex 工具事件与文本输出时间线。
+- 历史归档列表、消息详情、AI 总结与强制刷新。
+- `sendProgressReplies` 运行时开关。关闭或重启服务后会恢复 `config.yaml` 中的配置值。
+- 太阳/月亮明暗主题切换；首次访问跟随系统主题，手动选择会保存在浏览器本地。
+- 服务 PID、工作目录、日志路径和原始状态。
+
+启用 `sendProgressReplies` 后，Codex 的实时文本输出会按短暂静默窗口合并回复，最终答案不会重复发送。所有请求在处理期间会添加飞书 Typing 状态，结束、失败或停止后自动移除。
 
 ## 后台服务
 
@@ -78,6 +94,22 @@ codex-gateway stop
 ## 配置
 
 默认读取项目根目录下的 `config.yaml`。参考 [config-example.yaml](config-example.yaml)。
+
+每个飞书账号可配置：
+
+```yaml
+sendProgressReplies: false
+messageDedupeTtlMs: 600000
+history:
+  maxMessages: 50
+  maxSessions: 100
+summary:
+  model: gpt-5
+  maxMessages: 50
+  concurrency: 5
+```
+
+`history.maxSessions` 超限时会删除最旧的非当前归档。会话元信息、索引和摘要使用原子写入；索引或当前指针损坏时会从归档目录自动恢复。
 
 ## 用量日志
 
