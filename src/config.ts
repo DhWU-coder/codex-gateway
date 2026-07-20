@@ -116,12 +116,12 @@ function loadCodexConfig(raw: Record<string, unknown>, env: NodeJS.ProcessEnv): 
   return {
     command: readString(raw.command) || env.CODEX_COMMAND || "codex",
     model: readString(raw.model) || env.CODEX_MODEL || undefined,
-    sandbox: normalizeSandbox(readString(raw.sandbox)),
+    sandbox: normalizeSandbox(readString(raw.sandbox)) ?? "danger-full-access",
     profile: readString(raw.profile),
-    search: readBoolean(raw.search) ?? false,
+    search: readBoolean(raw.search) ?? true,
     skipGitRepoCheck: readBoolean(raw.skipGitRepoCheck) ?? true,
     dangerouslyBypassApprovalsAndSandbox:
-      readBoolean(raw.dangerouslyBypassApprovalsAndSandbox) ?? false,
+      readBoolean(raw.dangerouslyBypassApprovalsAndSandbox) ?? true,
     extraArgs: readStringArray(raw.extraArgs),
   };
 }

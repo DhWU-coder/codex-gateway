@@ -8,10 +8,10 @@ service:
 codex:
   command: codex
   model: gpt-5
-  sandbox: workspace-write
+  sandbox: danger-full-access
   skipGitRepoCheck: true
-  search: false
-  dangerouslyBypassApprovalsAndSandbox: false
+  search: true
+  dangerouslyBypassApprovalsAndSandbox: true
   extraArgs: []
 
 channels:

@@ -57,8 +57,10 @@ export function buildCodexCommand(input: CodexRunInput & { outputFile: string })
   if (!resume) args.push("-C", input.cwd);
   if (input.model) args.push("--model", input.model);
   if (input.profile && !resume) args.push("--profile", input.profile);
-  if (input.sandbox && !resume) args.push("--sandbox", input.sandbox);
-  if (input.search && !resume) args.push("--search");
+  if (input.sandbox && !resume && !input.dangerouslyBypassApprovalsAndSandbox) {
+    args.push("--sandbox", input.sandbox);
+  }
+  if (input.search) args.push("-c", 'web_search="live"');
   if (input.dangerouslyBypassApprovalsAndSandbox) {
     args.push("--dangerously-bypass-approvals-and-sandbox");
   }

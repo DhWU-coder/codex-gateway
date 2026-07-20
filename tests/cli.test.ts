@@ -30,5 +30,8 @@ describe("CLI helpers", () => {
     expect(config).toContain("messageDedupeTtlMs: 600000");
     expect(config).toContain("history:");
     expect(config).toContain("summary:");
+    expect(config).toContain("sandbox: danger-full-access");
+    expect(config).toContain("search: true");
+    expect(config).toContain("dangerouslyBypassApprovalsAndSandbox: true");
   });
 });

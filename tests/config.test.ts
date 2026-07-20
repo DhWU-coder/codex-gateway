@@ -2,6 +2,35 @@ import { describe, expect, test } from "bun:test";
 import { loadGatewayConfigFromObject } from "../src/config.js";
 
 describe("gateway config", () => {
+  test("defaults Codex headless runs to full access and live search", () => {
+    const config = loadGatewayConfigFromObject({}, { homeDir: "/Users/tester", env: {} });
+
+    expect(config.codex).toMatchObject({
+      sandbox: "danger-full-access",
+      search: true,
+      dangerouslyBypassApprovalsAndSandbox: true,
+    });
+  });
+
+  test("respects explicit restricted Codex settings", () => {
+    const config = loadGatewayConfigFromObject(
+      {
+        codex: {
+          sandbox: "workspace-write",
+          search: false,
+          dangerouslyBypassApprovalsAndSandbox: false,
+        },
+      },
+      { homeDir: "/Users/tester", env: {} }
+    );
+
+    expect(config.codex).toMatchObject({
+      sandbox: "workspace-write",
+      search: false,
+      dangerouslyBypassApprovalsAndSandbox: false,
+    });
+  });
+
   test("loads multi-account Feishu config with per-account defaults", () => {
     const config = loadGatewayConfigFromObject(
       {

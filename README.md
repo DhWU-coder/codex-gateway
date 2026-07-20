@@ -99,6 +99,17 @@ codex-gateway stop
 
 默认读取项目根目录下的 `config.yaml`。参考 [config-example.yaml](config-example.yaml)。
 
+飞书 headless 任务默认使用完全权限模式，不等待交互审批，并允许 Codex 执行联网命令和实时 Web Search：
+
+```yaml
+codex:
+  sandbox: danger-full-access
+  search: true
+  dangerouslyBypassApprovalsAndSandbox: true
+```
+
+网关会对新会话和恢复会话统一传入 `--dangerously-bypass-approvals-and-sandbox` 和实时搜索配置。这个模式允许 Codex 访问工作目录以外的文件并执行网络请求，仅应在受信任的本机环境和飞书账号中使用。
+
 每个飞书账号可配置：
 
 ```yaml

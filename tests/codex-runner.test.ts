@@ -44,7 +44,10 @@ describe("Codex runner", () => {
       prompt: "继续",
       sessionId: "00000000-0000-0000-0000-000000000001",
       outputFile: "/tmp/out.txt",
+      sandbox: "danger-full-access",
+      search: true,
       skipGitRepoCheck: true,
+      dangerouslyBypassApprovalsAndSandbox: true,
     });
 
     expect(command.args).toEqual([
@@ -52,11 +55,29 @@ describe("Codex runner", () => {
       "resume",
       "--json",
       "--skip-git-repo-check",
+      "-c",
+      'web_search="live"',
+      "--dangerously-bypass-approvals-and-sandbox",
       "--output-last-message",
       "/tmp/out.txt",
       "00000000-0000-0000-0000-000000000001",
       "-",
     ]);
+  });
+
+  test("full access fresh runs bypass approvals without adding a sandbox", () => {
+    const command = buildCodexCommand({
+      cwd: "/tmp/work",
+      prompt: "联网检查",
+      outputFile: "/tmp/out.txt",
+      sandbox: "danger-full-access",
+      search: true,
+      dangerouslyBypassApprovalsAndSandbox: true,
+    });
+
+    expect(command.args).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(command.args).toContain('web_search="live"');
+    expect(command.args).not.toContain("--sandbox");
   });
 
   test("extracts session id and assistant text from flexible JSONL events", () => {
