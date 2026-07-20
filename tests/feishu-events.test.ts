@@ -41,7 +41,22 @@ describe("Feishu events", () => {
       filePaths: ["/tmp/readme.md"],
     });
 
-    expect(prompt).toBe("[东豪] 分析一下\n/tmp/a.png\n/tmp/readme.md\n");
+    expect(prompt).toBe(
+      "[东豪] 分析一下\n/tmp/a.png\n/tmp/readme.md\n\n如需将生成的本地文件回传到飞书，请把文件保存在当前工作目录，并在最终回复中单独一行输出 [[codex:file:路径]]。\n"
+    );
+  });
+
+  test("tells Codex how to return generated files to Feishu", () => {
+    const prompt = buildCodexPromptForFeishu({
+      chatKind: "direct",
+      chatId: "oc_direct",
+      senderName: "东豪",
+      text: "生成一个 HTML 文件",
+      imagePaths: [],
+    });
+
+    expect(prompt).toContain("[[codex:file:路径]]");
+    expect(prompt).toContain("当前工作目录");
   });
 });
 

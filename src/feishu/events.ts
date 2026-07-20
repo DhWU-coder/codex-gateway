@@ -123,7 +123,9 @@ export function buildCodexPromptForFeishu(input: {
   const prefixedText =
     input.chatKind === "group" && text ? `[${input.senderName || input.chatId}] ${text}` : text;
   const lines = [prefixedText, ...input.imagePaths, ...filePaths].filter(Boolean);
-  return `${lines.join("\n")}\n`;
+  const fileReturnInstruction =
+    "如需将生成的本地文件回传到飞书，请把文件保存在当前工作目录，并在最终回复中单独一行输出 [[codex:file:路径]]。";
+  return `${lines.join("\n")}\n\n${fileReturnInstruction}\n`;
 }
 
 function extractMessageText(messageType: string, content: Record<string, unknown>): string {
