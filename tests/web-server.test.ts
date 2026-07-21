@@ -86,6 +86,9 @@ describe("web server", () => {
     expect(html).toContain('id="cancelCodexModel"');
     expect(html).toContain("createModelCombo");
     expect(html).toContain("model-combo-menu");
+    expect(html).toContain('byId("codexModelInput")?.focus()');
+    expect(html).toContain('input.addEventListener("click", open)');
+    expect(html).not.toContain('input.addEventListener("focus", open)');
     expect(html).toContain("继承全局模型");
     expect(html).toContain("createRuntimeTuningFields");
     expect(html).toContain("supportedReasoningEfforts");

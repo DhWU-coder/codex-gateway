@@ -1027,7 +1027,6 @@ export function renderAdminPage(): string {
       input.setAttribute("role", "combobox");
       input.setAttribute("aria-autocomplete", "list");
       input.setAttribute("aria-expanded", "false");
-      input.addEventListener("focus", open);
       input.addEventListener("click", open);
       input.addEventListener("input", () => {
         state.activeIndex = 0;
