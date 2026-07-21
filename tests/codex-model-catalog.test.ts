@@ -93,12 +93,20 @@ describe("Codex model catalog", () => {
     expect(readFileSync(counterPath, "utf-8")).toBe("1");
   });
 
-  test("reads the effective Codex CLI verbosity from app-server config", async () => {
+  test("reads the effective Codex CLI runtime defaults from app-server config", async () => {
     const directory = mkdtempSync(join(tmpdir(), "codex-gateway-runtime-defaults-"));
-    const command = createFakeCodex(directory, [], undefined, "high");
+    const command = createFakeCodex(directory, [], undefined, "high", true, "fast", true);
     const catalog = createCodexModelCatalog({ command, timeoutMs: 1_000 });
 
-    expect(await catalog.runtimeDefaults()).toEqual({ verbosity: "high" });
+    expect(await catalog.runtimeDefaults()).toEqual({ fast: true, verbosity: "high" });
+  });
+
+  test("does not treat Fast feature availability as an enabled service tier", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "codex-gateway-fast-default-"));
+    const command = createFakeCodex(directory, [], undefined, null, true, "default", true);
+    const catalog = createCodexModelCatalog({ command, timeoutMs: 1_000 });
+
+    expect(await catalog.runtimeDefaults()).toEqual({ fast: false, verbosity: "medium" });
   });
 
   test("falls back to medium verbosity and shares the model catalog cache", async () => {
@@ -108,7 +116,7 @@ describe("Codex model catalog", () => {
     const catalog = createCodexModelCatalog({ command, timeoutMs: 1_000, ttlMs: 60_000 });
 
     await catalog.list();
-    expect(await catalog.runtimeDefaults()).toEqual({ verbosity: "medium" });
+    expect(await catalog.runtimeDefaults()).toEqual({ fast: false, verbosity: "medium" });
 
     expect(readFileSync(counterPath, "utf-8")).toBe("1");
   });
@@ -135,7 +143,7 @@ describe("Codex model catalog", () => {
     expect(await catalog.list()).toEqual([
       expect.objectContaining({ model: "gpt-compatible", isDefault: true }),
     ]);
-    expect(await catalog.runtimeDefaults()).toEqual({ verbosity: "medium" });
+    expect(await catalog.runtimeDefaults()).toEqual({ fast: false, verbosity: "medium" });
   });
 
   test("rejects malformed app-server output", async () => {
@@ -177,7 +185,9 @@ function createFakeCodex(
   models: Array<Record<string, unknown>>,
   counterPath?: string,
   verbosity: string | null = null,
-  respondToConfig = true
+  respondToConfig = true,
+  serviceTier: string | null = null,
+  fastMode = true
 ): string {
   const command = join(directory, "fake-codex");
   writeFileSync(
@@ -198,7 +208,7 @@ function createFakeCodex(
       "  }",
       respondToConfig ? "  if (message.method === 'config/read') {" : "",
       respondToConfig
-        ? `    console.log(JSON.stringify({ id: message.id, result: { config: { model_verbosity: ${JSON.stringify(verbosity)} }, origins: {} } }));`
+        ? `    console.log(JSON.stringify({ id: message.id, result: { config: { model_verbosity: ${JSON.stringify(verbosity)}, service_tier: ${JSON.stringify(serviceTier)}, features: { fast_mode: ${JSON.stringify(fastMode)} } }, origins: {} } }));`
         : "",
       respondToConfig ? "  }" : "",
       "}",

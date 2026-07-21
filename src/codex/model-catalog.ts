@@ -40,6 +40,7 @@ export interface ReadCodexModelsOptions {
 }
 
 export interface CodexRuntimeDefaults {
+  fast: boolean;
   verbosity: CodexVerbosity;
 }
 
@@ -56,7 +57,10 @@ export interface CreateCodexModelCatalogOptions extends ReadCodexModelsOptions {
 const INITIALIZE_REQUEST_ID = 1;
 const MODEL_LIST_REQUEST_ID = 2;
 const CONFIG_READ_REQUEST_ID = 3;
-const FALLBACK_RUNTIME_DEFAULTS: CodexRuntimeDefaults = { verbosity: "medium" };
+const FALLBACK_RUNTIME_DEFAULTS: CodexRuntimeDefaults = {
+  fast: false,
+  verbosity: "medium",
+};
 
 interface CodexCatalogSnapshot {
   models: CodexModelOption[];
@@ -97,6 +101,11 @@ async function readCodexCatalogSnapshot(
     let defaults: CodexRuntimeDefaults | undefined;
     let configTimer: ReturnType<typeof setTimeout> | undefined;
     const timer = setTimeout(() => {
+      if (models !== undefined) {
+        defaults ??= FALLBACK_RUNTIME_DEFAULTS;
+        maybeFinish();
+        return;
+      }
       finish(new Error(`读取 Codex 模型列表超时（${timeoutMs} ms）`));
     }, timeoutMs);
 
@@ -251,6 +260,7 @@ function normalizeRuntimeDefaults(value: unknown): CodexRuntimeDefaults {
   const result = isRecord(value) ? value : {};
   const config = isRecord(result.config) ? result.config : {};
   return {
+    fast: config.service_tier === "fast",
     verbosity: normalizeCodexVerbosity(config.model_verbosity) ?? "medium",
   };
 }

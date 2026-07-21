@@ -86,7 +86,7 @@ describe("服务 Daemon 配置热更新", () => {
             ];
           },
           async runtimeDefaults() {
-            return { verbosity: "high" };
+            return { fast: true, verbosity: "high" };
           },
         };
       },
@@ -112,7 +112,10 @@ describe("服务 Daemon 配置热更新", () => {
       expect(await webOptions?.modelCatalogProvider?.()).toEqual([
         expect.objectContaining({ model: "gpt-test", isDefault: true }),
       ]);
-      expect(await webOptions?.codexRuntimeDefaultsProvider?.()).toEqual({ verbosity: "high" });
+      expect(await webOptions?.codexRuntimeDefaultsProvider?.()).toEqual({
+        fast: true,
+        verbosity: "high",
+      });
       await webOptions?.restartService?.();
       expect(restartOptions).toMatchObject({
         cwd: directory,

@@ -85,8 +85,11 @@ describe("web server", () => {
     expect(html).toContain("Codex CLI 默认（当前：");
     expect(html).toContain("继承全局（当前：");
     expect(html).toContain("codexRuntimeDefaults");
+    expect(html).toContain("view.codexRuntimeDefaults.fast");
+    expect(html).toContain("formatFastState");
     expect(html).toContain('make("div", "runtime-setting-value"');
     expect(html).toContain(".runtime-setting-value {");
+    expect(html).toContain("word-break: keep-all");
     expect(html).toContain("模型不支持 Fast");
     expect(html).toContain('"reasoningEffort"');
     expect(html).toContain('"fast"');
@@ -363,7 +366,7 @@ describe("web server", () => {
           isDefault: true,
         },
       ],
-      codexRuntimeDefaultsProvider: async () => ({ verbosity: "high" }),
+      codexRuntimeDefaultsProvider: async () => ({ fast: true, verbosity: "high" }),
     });
 
     const models = await handleWebRequest(
@@ -406,7 +409,7 @@ describe("web server", () => {
           isDefault: true,
         },
       ],
-      defaults: { verbosity: "high" },
+      defaults: { fast: true, verbosity: "high" },
     });
     expect(await current.json()).toEqual({
       model: "gpt-5",

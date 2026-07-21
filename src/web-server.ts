@@ -119,7 +119,7 @@ export async function handleWebRequest(
     }
     try {
       const models = await options.modelCatalogProvider();
-      let defaults: CodexRuntimeDefaults = { verbosity: "medium" };
+      let defaults: CodexRuntimeDefaults = { fast: false, verbosity: "medium" };
       try {
         defaults = (await options.codexRuntimeDefaultsProvider?.()) ?? defaults;
       } catch {}
