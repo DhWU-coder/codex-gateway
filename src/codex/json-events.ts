@@ -244,8 +244,8 @@ function findUsage(event: Record<string, unknown>): CodexUsage | undefined {
 
   const input = firstNumber(usage.input_tokens, usage.prompt_tokens, usage.input);
   const output = firstNumber(usage.output_tokens, usage.completion_tokens, usage.output);
-  const total = firstNumber(usage.total_tokens, usage.total);
-  if (input === undefined || output === undefined || total === undefined) return undefined;
+  if (input === undefined || output === undefined) return undefined;
+  const total = firstNumber(usage.total_tokens, usage.total) ?? input + output;
 
   const promptDetails = isRecord(usage.prompt_tokens_details)
     ? usage.prompt_tokens_details

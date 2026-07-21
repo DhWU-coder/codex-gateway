@@ -102,16 +102,18 @@ export async function handleWebRequest(
     });
   }
   if (request.method === "GET" && url.pathname === "/api/usage") {
-    return jsonResponse(
-      getUsageDashboard({
+    const channels = options.channelStatusProvider();
+    return jsonResponse({
+      ...getUsageDashboard({
         projectRoot: resolveProjectRoot(options),
         preset: url.searchParams.get("preset") ?? undefined,
         recentValue: url.searchParams.get("recentValue") ?? undefined,
         startDate: url.searchParams.get("startDate") ?? undefined,
         endDate: url.searchParams.get("endDate") ?? undefined,
         bucket: url.searchParams.get("bucket") ?? undefined,
-      })
-    );
+      }),
+      activeSessions: summarizeChannels(channels.channels).activeSessions,
+    });
   }
   if (request.method === "GET" && url.pathname === "/api/models") {
     if (!options.modelCatalogProvider) {

@@ -53,11 +53,22 @@ describe("web server", () => {
     expect(html).toContain('id="feishuAccountList"');
     expect(html).toContain('id="sessionDrawer"');
     expect(html).toContain('id="usageSummary"');
+    expect(html).toContain('id="usagePending"');
+    expect(html).toContain("用量将在任务完成后入账");
+    expect(html).toContain("refreshUsagePolling");
     expect(html).toContain('id="logOutput"');
     expect(html).toContain("历史归档");
     expect(html).toContain("AI 总结");
     expect(html).toContain("连接测试");
     expect(html).toContain("实时过程回复");
+    expect(html).toContain("Codex 错误");
+    expect(html).toContain("Codex 警告");
+    expect(html).toContain("Codex 运行日志");
+    expect(html).toContain("classifyStderr");
+    expect(html).toContain("stderr-error");
+    expect(html).toContain("stderr-warning");
+    expect(html).toContain("stderr-log");
+    expect(html).not.toContain(' : "标准错误"');
     expect(html).toContain("/api/feishu-config");
     expect(html).toContain("/api/codex-config");
     expect(html).toContain("/api/models");
@@ -284,6 +295,7 @@ describe("web server", () => {
       stats: { channels: 1, connectedChannels: 1, activeSessions: 2 },
     });
     expect(await usage.json()).toMatchObject({
+      activeSessions: 2,
       totalRequests: 1,
       totals: { total: 120, cached: 20 },
     });

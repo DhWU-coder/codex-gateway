@@ -140,7 +140,6 @@ describe("Codex runner", () => {
             cached_input_tokens: 7,
             output_tokens: 23,
             reasoning_output_tokens: 5,
-            total_tokens: 124,
           },
         }),
       ].join("\n")
@@ -275,7 +274,7 @@ describe("Codex runner", () => {
         "const outputIndex = process.argv.indexOf('--output-last-message');",
         "await Bun.write(process.argv[outputIndex + 1], '测试回复');",
         "console.log(JSON.stringify({ type: 'thread.started', thread_id: 'thread_1' }));",
-        "console.log(JSON.stringify({ type: 'turn.completed', model: 'gpt-5', usage: { input_tokens: 12, output_tokens: 8, total_tokens: 20 } }));",
+        "console.log(JSON.stringify({ type: 'turn.completed', model: 'gpt-5', usage: { input_tokens: 12, output_tokens: 8 } }));",
       ].join("\n"),
       { mode: 0o700 }
     );
@@ -334,6 +333,66 @@ describe("Codex runner", () => {
       command: fakeCodex,
       projectRoot,
     });
+
+    expect(() => readFileSync(join(projectRoot, ".codex-usage", "usage.jsonl"))).toThrow();
+  });
+
+  test("does not write usage when Codex exits with an error", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "codex-gateway-failed-usage-project-"));
+    const workdir = mkdtempSync(join(tmpdir(), "codex-gateway-failed-usage-work-"));
+    const fakeCodex = join(projectRoot, "fake-codex");
+    writeFileSync(
+      fakeCodex,
+      [
+        "#!/usr/bin/env bun",
+        "console.log(JSON.stringify({ type: 'turn.completed', model: 'gpt-5', usage: { input_tokens: 12, output_tokens: 8, total_tokens: 20 } }));",
+        "process.exit(1);",
+      ].join("\n"),
+      { mode: 0o700 }
+    );
+    chmodSync(fakeCodex, 0o700);
+
+    await expect(
+      runCodex({
+        cwd: workdir,
+        prompt: "失败请求",
+        command: fakeCodex,
+        projectRoot,
+      })
+    ).rejects.toThrow("Codex CLI failed (1)");
+
+    expect(() => readFileSync(join(projectRoot, ".codex-usage", "usage.jsonl"))).toThrow();
+  });
+
+  test("does not write usage when Codex is interrupted", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "codex-gateway-aborted-usage-project-"));
+    const workdir = mkdtempSync(join(tmpdir(), "codex-gateway-aborted-usage-work-"));
+    const fakeCodex = join(projectRoot, "fake-codex");
+    writeFileSync(
+      fakeCodex,
+      [
+        "#!/usr/bin/env bun",
+        "console.log(JSON.stringify({ type: 'item.started', item: { id: 'tool_1', type: 'command_execution', command: 'sleep' } }));",
+        "await Bun.sleep(30000);",
+        "console.log(JSON.stringify({ type: 'turn.completed', model: 'gpt-5', usage: { input_tokens: 12, output_tokens: 8, total_tokens: 20 } }));",
+      ].join("\n"),
+      { mode: 0o700 }
+    );
+    chmodSync(fakeCodex, 0o700);
+    const controller = new AbortController();
+
+    await expect(
+      runCodex({
+        cwd: workdir,
+        prompt: "中断请求",
+        command: fakeCodex,
+        projectRoot,
+        signal: controller.signal,
+        onProgress() {
+          controller.abort();
+        },
+      })
+    ).rejects.toThrow("Codex session stopped");
 
     expect(() => readFileSync(join(projectRoot, ".codex-usage", "usage.jsonl"))).toThrow();
   });

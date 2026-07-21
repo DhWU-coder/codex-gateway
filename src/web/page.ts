@@ -125,6 +125,7 @@ export function renderAdminPage(): string {
     .badge.error, .badge.failed { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
     .reload-state { padding: 12px; border-top: 1px solid var(--line); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
     .usage-filter { display: grid; grid-template-columns: minmax(420px, 1.4fr) 150px 150px 150px 130px auto; gap: 10px; align-items: end; }
+    .usage-pending { padding: 11px 14px; border: 1px solid var(--warning); border-radius: 6px; background: var(--warning-soft); color: var(--warning); }
     .field { display: grid; gap: 6px; min-width: 0; color: var(--muted); font-size: 12px; }
     .segmented { display: flex; gap: 6px; flex-wrap: wrap; }
     .segmented button { min-width: 62px; }
@@ -214,6 +215,11 @@ export function renderAdminPage(): string {
     details.event { border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); }
     details.event summary { cursor: pointer; padding: 8px 10px; color: var(--muted); font-size: 12px; font-weight: 650; }
     details.event pre { max-height: 240px; margin: 0; overflow: auto; padding: 10px; border-top: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+    details.event.stderr-error { border-color: var(--danger); }
+    details.event.stderr-error summary { color: var(--danger); }
+    details.event.stderr-warning { border-color: var(--warning); }
+    details.event.stderr-warning summary { color: var(--warning); }
+    details.event.stderr-log summary { color: var(--muted); }
     .archive-toolbar { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 12px; flex-wrap: wrap; }
     .archive-grid { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 12px; min-height: 480px; }
     .archive-list { display: grid; align-content: start; gap: 8px; }
@@ -311,6 +317,7 @@ export function renderAdminPage(): string {
           <button id="usageRefresh" type="button">刷新</button>
         </div>
       </section>
+      <div class="usage-pending" id="usagePending" role="status" hidden></div>
       <div class="metric-grid" id="usageSummary"></div>
       <div class="usage-main">
         <section class="surface"><div class="surface-head"><h2>Token 趋势</h2><span class="source" id="usageInvalid"></span></div><div class="surface-body"><div class="chart-frame"><svg id="usageChart" role="img" aria-label="Token 使用趋势"></svg></div></div></section>
@@ -406,6 +413,7 @@ export function renderAdminPage(): string {
       newAccounts: new Set(),
       connectionTests: new Map(),
       usagePreset: "all",
+      usageRequest: 0,
       usage: null,
       session: null,
       sessionChannelId: null,
@@ -1262,12 +1270,26 @@ export function renderAdminPage(): string {
       return bubble;
     }
     function createEventDetails(event) {
-      const details = make("details", "event");
-      const title = event.type === "tool_start" ? "工具开始 · " + (event.name || "tool") : event.type === "tool_result" ? "工具结果 · " + (event.name || "tool") : "标准错误";
+      let className = "event";
+      let title;
+      if (event.type === "tool_start") title = "工具开始 · " + (event.name || "tool");
+      else if (event.type === "tool_result") title = "工具结果 · " + (event.name || "tool");
+      else {
+        const stderr = classifyStderr(event.text);
+        className += " " + stderr.className;
+        title = stderr.title;
+      }
+      const details = make("details", className);
       details.append(make("summary", "", title));
       const content = event.type === "tool_start" ? JSON.stringify(event.input || {}, null, 2) : event.text || "";
       details.append(make("pre", "", content));
       return details;
+    }
+    function classifyStderr(text) {
+      const value = String(text || "");
+      if (/\\b(?:ERROR|FATAL|PANIC)\\b/i.test(value)) return { className: "stderr-error", title: "Codex 错误" };
+      if (/\\bWARN(?:ING)?\\b/i.test(value)) return { className: "stderr-warning", title: "Codex 警告" };
+      return { className: "stderr-log", title: "Codex 运行日志" };
     }
     async function loadArchives() {
       if (!view.session || !view.sessionChannelId) return;
@@ -1323,10 +1345,13 @@ export function renderAdminPage(): string {
       await loadArchiveDetail(body.summary);
     }
     async function loadUsage() {
+      const request = ++view.usageRequest;
       const params = new URLSearchParams({ preset: view.usagePreset, bucket: byId("usageBucket").value, recentValue: byId("usageRecent").value });
       if (byId("usageStart").value) params.set("startDate", byId("usageStart").value);
       if (byId("usageEnd").value) params.set("endDate", byId("usageEnd").value);
-      view.usage = await api("/api/usage?" + params.toString());
+      const usage = await api("/api/usage?" + params.toString());
+      if (request !== view.usageRequest) return;
+      view.usage = usage;
       renderUsage();
     }
     function renderUsage() {
@@ -1340,6 +1365,10 @@ export function renderAdminPage(): string {
       addMetric(summary, "缓存输入", formatNumber(usage.totals.cached));
       addMetric(summary, "输出", formatNumber(usage.totals.output));
       addMetric(summary, "推理", formatNumber(usage.totals.reasoning));
+      const activeSessions = Math.max(0, Number(usage.activeSessions || 0));
+      const pending = byId("usagePending");
+      pending.hidden = activeSessions === 0;
+      pending.textContent = activeSessions + " 个任务执行中，用量将在任务完成后入账。页面将自动刷新。";
       byId("usageRangeLabel").textContent = usage.range.start ? formatTime(usage.range.start) + " 至 " + formatTime(usage.range.end) : "暂无记录";
       byId("usageInvalid").textContent = usage.invalidLines ? "已忽略 " + usage.invalidLines + " 条无效记录" : "";
       renderUsageChart(usage.timeline || []);
@@ -1453,6 +1482,13 @@ export function renderAdminPage(): string {
       if (view.activeTab === "channels") await Promise.all([loadAccounts(), loadModelCatalog()]);
       if (view.activeTab === "logs") await loadLogs(true);
     }
+    async function refreshUsagePolling() {
+      const wasPending = Number(view.usage && view.usage.activeSessions || 0) > 0;
+      await loadOverview();
+      if (view.activeTab !== "usage") return;
+      const activeSessions = currentChannels().reduce((total, channel) => total + Number(channel.activeSessions || 0), 0);
+      if (activeSessions > 0 || wasPending) await loadUsage();
+    }
 
     renderThemeToggle();
     byId("themeToggle").addEventListener("click", () => applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark", true));
@@ -1496,7 +1532,7 @@ export function renderAdminPage(): string {
     if (view.activeTab === "usage") loadUsage().catch(showError);
     if (view.activeTab === "logs") loadLogs(true).catch(showError);
     setInterval(() => {
-      loadOverview().catch(showError);
+      refreshUsagePolling().catch(showError);
       if (view.activeTab === "logs" && !view.logPaused) loadLogs(false).catch(showError);
     }, 2000);
   </script>
