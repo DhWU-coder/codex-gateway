@@ -305,6 +305,73 @@ describe("web server", () => {
     expect(await logs.json()).toMatchObject({ content: "service ready\n", reset: false });
   });
 
+  test("频道状态 API 隐藏无害告警且服务日志保留原文", async () => {
+    const fixture = createWebFixture();
+    const iconWarning =
+      "2026-07-21T06:50:48.363404Z WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/";
+    const telemetryWarning =
+      "2026-07-21T06:50:58.888244Z WARN codex_otel::events::session_telemetry: metrics counter [codex.skill.injected] failed: tag value contains invalid characters: superpowers:using-superpowers";
+    const actionableWarning = "WARN codex_network: temporary retry";
+    writeFileSync(
+      fixture.logPath,
+      `${iconWarning}\n${telemetryWarning}\n${actionableWarning}\n`
+    );
+    const channelStatusProvider = () => ({
+      channels: [
+        {
+          id: "feishu:primary",
+          status: "connected",
+          activeSessions: 1,
+          recentSessions: [
+            {
+              messages: [
+                {
+                  progressEvents: [
+                    { type: "stderr", text: iconWarning },
+                    {
+                      type: "stderr",
+                      text: `${telemetryWarning}\n${actionableWarning}`,
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const options = fixture.options({ channelStatusProvider });
+
+    const channels = await handleWebRequest(
+      new Request("http://127.0.0.1/api/channels"),
+      options
+    );
+    const status = await handleWebRequest(
+      new Request("http://127.0.0.1/api/status"),
+      options
+    );
+    const overview = await handleWebRequest(
+      new Request("http://127.0.0.1/api/overview"),
+      options
+    );
+    const logs = await handleWebRequest(
+      new Request("http://127.0.0.1/api/logs"),
+      options
+    );
+
+    const channelPayload = await channels.json();
+    const statusPayload = await status.json();
+    const overviewPayload = await overview.json();
+    for (const payload of [channelPayload, statusPayload.channels, overviewPayload.channels]) {
+      const serialized = JSON.stringify(payload);
+      expect(serialized).not.toContain(iconWarning);
+      expect(serialized).not.toContain(telemetryWarning);
+      expect(serialized).toContain(actionableWarning);
+    }
+    expect((await logs.json()).content).toContain(iconWarning);
+    expect(JSON.stringify(channelStatusProvider())).toContain(iconWarning);
+  });
+
   test("配置 API 脱敏 Secret 并保存热更新字段", async () => {
     const fixture = createWebFixture();
     const options = fixture.options();

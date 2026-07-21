@@ -19,6 +19,7 @@ import {
 import { readServiceLogTail } from "./web/log-service.js";
 import { getUsageDashboard } from "./web/usage-service.js";
 import { renderAdminPage } from "./web/page.js";
+import { filterChannelStatusForDisplay } from "./web/stderr-display.js";
 
 export interface WebServerOptions {
   port: number;
@@ -85,14 +86,14 @@ export async function handleWebRequest(
   if (request.method === "GET" && url.pathname === "/api/status") {
     return jsonResponse({
       state: options.stateProvider(),
-      channels: options.channelStatusProvider(),
+      channels: filterChannelStatusForDisplay(options.channelStatusProvider()),
     });
   }
   if (request.method === "GET" && url.pathname === "/api/channels") {
-    return jsonResponse(options.channelStatusProvider());
+    return jsonResponse(filterChannelStatusForDisplay(options.channelStatusProvider()));
   }
   if (request.method === "GET" && url.pathname === "/api/overview") {
-    const channels = options.channelStatusProvider();
+    const channels = filterChannelStatusForDisplay(options.channelStatusProvider());
     return jsonResponse({
       state: options.stateProvider(),
       configPath: options.configPath ? resolve(options.configPath) : null,
