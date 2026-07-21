@@ -161,6 +161,39 @@ export class CodexSessionRouter {
     }
   }
 
+  updateCurrentSessionRuntime(
+    conversationKey: string,
+    settings: CodexRuntimeTuning & { model?: string }
+  ): boolean {
+    const routed = this.getOrCreateRoutedSession(conversationKey);
+    if (routed.abortController) return false;
+
+    const metadata = routed.metadata;
+    if (metadata.runtimeSettingsCaptured !== true) {
+      const tuning = this.sessionTuning(metadata);
+      metadata.model = this.sessionModel(metadata);
+      metadata.reasoningEffort = tuning.reasoningEffort;
+      metadata.fast = tuning.fast;
+      metadata.verbosity = tuning.verbosity;
+    }
+    if (Object.prototype.hasOwnProperty.call(settings, "model")) {
+      metadata.model = settings.model;
+    }
+    if (Object.prototype.hasOwnProperty.call(settings, "reasoningEffort")) {
+      metadata.reasoningEffort = settings.reasoningEffort;
+    }
+    if (Object.prototype.hasOwnProperty.call(settings, "fast")) {
+      metadata.fast = settings.fast;
+    }
+    if (Object.prototype.hasOwnProperty.call(settings, "verbosity")) {
+      metadata.verbosity = settings.verbosity;
+    }
+    metadata.runtimeSettingsCaptured = true;
+    metadata.lastActiveAt = new Date().toISOString();
+    this.historyStore.write(metadata);
+    return true;
+  }
+
   getStatus(conversationKey: string): CodexSessionStatus {
     const current = this.getCurrentArchivedSession(conversationKey);
     return {

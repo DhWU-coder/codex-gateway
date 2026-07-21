@@ -1,6 +1,10 @@
 import { mkdirSync, watch } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
-import { ChannelManager, type ChannelReloadResult } from "../channel-manager.js";
+import {
+  ChannelManager,
+  type ChannelManagerDependencies,
+  type ChannelReloadResult,
+} from "../channel-manager.js";
 import {
   createCodexModelCatalog,
   type CreateCodexModelCatalogOptions,
@@ -22,7 +26,10 @@ export interface StartServiceDaemonOptions {
   projectRoot?: string;
   config?: GatewayConfig;
   now?: () => Date;
-  createChannelManager?: (config: GatewayConfig) => ChannelManager;
+  createChannelManager?: (
+    config: GatewayConfig,
+    dependencies: ChannelManagerDependencies
+  ) => ChannelManager;
   startWebServer?: typeof startWebServer;
   createConfigWatcher?: (options: ServiceConfigWatcherOptions) => ServiceConfigWatcher;
   spawnServiceRestart?: (options: SpawnRestartOptions) => number;
@@ -68,13 +75,16 @@ export async function startServiceDaemon(
     options.projectRoot ?? (configPath ? dirname(configPath) : process.cwd());
   const logPath = getServiceLogPath();
   mkdirSync(cwd, { recursive: true, mode: 0o700 });
-  const channelManager =
-    options.createChannelManager?.(config) ?? new ChannelManager({ config, projectRoot });
   const modelCatalog = (options.createModelCatalog ?? createCodexModelCatalog)({
     command: config.codex.command,
     cwd,
     profile: config.codex.profile,
   });
+  const modelCatalogProvider = () => modelCatalog.list();
+  const channelDependencies: ChannelManagerDependencies = { modelCatalogProvider };
+  const channelManager =
+    options.createChannelManager?.(config, channelDependencies) ??
+    new ChannelManager({ config, projectRoot, modelCatalogProvider });
   await channelManager.start();
 
   let configReloadState: ConfigReloadState = { status: "idle" };
@@ -136,7 +146,7 @@ export async function startServiceDaemon(
     configPath,
     logPath,
     configReloadStateProvider: () => configReloadState,
-    modelCatalogProvider: () => modelCatalog.list(),
+    modelCatalogProvider,
     codexRuntimeDefaultsProvider: () => modelCatalog.runtimeDefaults(),
   });
   const host = "127.0.0.1";

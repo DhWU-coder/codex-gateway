@@ -37,6 +37,7 @@ describe("服务 Daemon 配置热更新", () => {
     let webOptions: WebServerOptions | undefined;
     let restartOptions: SpawnRestartOptions | undefined;
     let modelCatalogCommand = "";
+    let channelModelCatalogProvider: WebServerOptions["modelCatalogProvider"];
     const reloads: string[] = [];
     const manager = {
       async start() {},
@@ -53,7 +54,10 @@ describe("服务 Daemon 配置热更新", () => {
     const controller = await startServiceDaemon({
       port: 18788,
       configPath,
-      createChannelManager: () => manager,
+      createChannelManager: (_config, dependencies) => {
+        channelModelCatalogProvider = dependencies.modelCatalogProvider;
+        return manager;
+      },
       startWebServer: (options) => {
         webOptions = options;
         return {
@@ -109,6 +113,7 @@ describe("服务 Daemon 配置热更新", () => {
       });
       expect(webOptions?.configReloadStateProvider?.()).toEqual({ status: "idle" });
       expect(modelCatalogCommand).toBe("codex");
+      expect(channelModelCatalogProvider).toBe(webOptions?.modelCatalogProvider);
       expect(await webOptions?.modelCatalogProvider?.()).toEqual([
         expect.objectContaining({ model: "gpt-test", isDefault: true }),
       ]);

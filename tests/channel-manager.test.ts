@@ -3,6 +3,27 @@ import { ChannelManager } from "../src/channel-manager.js";
 import type { FeishuAccountConfig, GatewayConfig } from "../src/config.js";
 
 describe("Channel manager", () => {
+  test("passes the shared model catalog provider to every Feishu channel", () => {
+    const provider = async () => [];
+    const received: unknown[] = [];
+
+    new ChannelManager({
+      config: gatewayConfig([account("one"), account("two")]),
+      modelCatalogProvider: provider,
+      createFeishuChannel: (item, dependencies) => {
+        received.push(dependencies?.modelCatalogProvider);
+        return {
+          id: channelId(item.id),
+          async start() {},
+          async stop() {},
+          getStatus: () => ({ id: channelId(item.id), status: "connected" }),
+        };
+      },
+    });
+
+    expect(received).toEqual([provider, provider]);
+  });
+
   test("starts only configured Feishu channels and reports status", async () => {
     const started: string[] = [];
     const config = gatewayConfig([

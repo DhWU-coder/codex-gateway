@@ -1,11 +1,13 @@
 import { mkdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { CodexProgressEvent } from "../codex/json-events.js";
+import type { CodexModelOption } from "../codex/model-catalog.js";
 import type {
   CodexReasoningEffort,
   CodexRuntimeTuning,
   CodexVerbosity,
 } from "../codex/runtime-settings.js";
+import { normalizeCodexReasoningEffort } from "../codex/runtime-settings.js";
 import type { CodexConfig, FeishuAccountConfig } from "../config.js";
 import type { SessionAiSummary, SessionSummary } from "../session/history.js";
 import {
@@ -80,6 +82,10 @@ export interface FeishuRouterLike {
   stopAll(): void;
   updateDefaultModel?(model?: string): void;
   updateDefaults?(defaults: CodexRuntimeTuning & { model?: string }): void;
+  updateCurrentSessionRuntime?(
+    conversationKey: string,
+    settings: CodexRuntimeTuning & { model?: string }
+  ): boolean;
   getStatus(conversationKey: string): {
     running: boolean;
     sessionId?: string;
@@ -128,6 +134,7 @@ export interface FeishuChannelOptions {
   outputQuietMs?: number;
   now?: () => number;
   logger?: Pick<Console, "log" | "warn" | "error">;
+  modelCatalogProvider?: () => Promise<CodexModelOption[]>;
 }
 
 export class FeishuChannel {
@@ -142,6 +149,7 @@ export class FeishuChannel {
   private readonly reactionClient?: FeishuReactionClient;
   private readonly router: FeishuRouterLike;
   private readonly logger: Pick<Console, "log" | "warn" | "error">;
+  private readonly modelCatalogProvider?: () => Promise<CodexModelOption[]>;
   private readonly replyTargets = new Map<string, string>();
   private readonly handledMessageIds = new Map<string, number>();
   private readonly outputRelays = new Map<string, FeishuOutputRelay>();
@@ -164,6 +172,7 @@ export class FeishuChannel {
     this.messageClient = options.messageClient;
     this.reactionClient = options.reactionClient;
     this.logger = options.logger ?? console;
+    this.modelCatalogProvider = options.modelCatalogProvider;
     this.now = options.now ?? (() => Date.now());
     this.messageDedupeTtlMs = options.account.messageDedupeTtlMs ?? 10 * 60 * 1000;
     this.outputQuietMs = options.outputQuietMs ?? 800;
@@ -451,6 +460,18 @@ export class FeishuChannel {
       await this.reply(conversationKey, replyToMessageId, this.buildStatusReply(conversationKey));
       return;
     }
+    if (command.type === "invalid") {
+      await this.reply(conversationKey, replyToMessageId, command.usage);
+      return;
+    }
+    if (command.type === "model" || command.type === "effort" || command.type === "fast") {
+      await this.reply(
+        conversationKey,
+        replyToMessageId,
+        await this.buildRuntimeCommandReply(conversationKey, command)
+      );
+      return;
+    }
     await this.reply(
       conversationKey,
       replyToMessageId,
@@ -465,6 +486,8 @@ export class FeishuChannel {
       `账号：${this.account.id || "default"}`,
       `会话：${conversationKey}`,
       `模型：${status.model ?? this.account.model ?? "-"}`,
+      `Effort：${status.reasoningEffort ?? "CLI 默认"}`,
+      `Fast：${formatFastValue(status.fast)}`,
       `工作目录：${status.cwd ?? this.account.cwd}`,
       status.archiveId ? `Archive：${status.archiveId}` : "",
       status.sessionId ? `原生 session：${status.sessionId}` : "",
@@ -472,6 +495,154 @@ export class FeishuChannel {
     ]
       .filter(Boolean)
       .join("\n");
+  }
+
+  private async buildRuntimeCommandReply(
+    conversationKey: string,
+    command: RuntimeSettingsCommand
+  ): Promise<string> {
+    const status = this.router.getStatus(conversationKey);
+    if (isRuntimeMutation(command) && status.running) {
+      return "当前 session 正在运行，请等待完成或先发送 /stop。";
+    }
+    try {
+      if (command.type === "model") {
+        return await this.buildModelCommandReply(conversationKey, command);
+      }
+      if (command.type === "effort") {
+        return await this.buildEffortCommandReply(conversationKey, command);
+      }
+      return await this.buildFastCommandReply(conversationKey, command);
+    } catch (error) {
+      return `读取模型目录失败：${formatError(error)}`;
+    }
+  }
+
+  private async buildModelCommandReply(
+    conversationKey: string,
+    command: Extract<FeishuCommand, { type: "model" }>
+  ): Promise<string> {
+    const status = this.router.getStatus(conversationKey);
+    if (command.action === "show") {
+      return `当前 session 模型：${status.model ?? "Codex CLI 默认"}`;
+    }
+    if (command.action === "list") {
+      const models = await this.readModelCatalog();
+      if (!models.length) return "当前 Codex 模型目录为空。";
+      return [
+        "可用模型：",
+        ...models.map((model) => formatModelOption(model, status.model)),
+      ].join("\n");
+    }
+    if (command.action === "default") {
+      const target = this.account.model;
+      const error = this.applySessionRuntime(conversationKey, { model: target });
+      return error ?? `当前 session 模型已恢复账户默认值：${target ?? "Codex CLI 默认"}。`;
+    }
+
+    const models = await this.readModelCatalog();
+    const selected = models.find(
+      (model) => model.model === command.value || model.id === command.value
+    );
+    if (!selected) {
+      return `没有找到模型：${command.value}。发送 /model list 查看可用模型。`;
+    }
+    const error = this.applySessionRuntime(conversationKey, { model: selected.model });
+    return error ?? `当前 session 模型已切换为：${selected.model}。`;
+  }
+
+  private async buildEffortCommandReply(
+    conversationKey: string,
+    command: Extract<FeishuCommand, { type: "effort" }>
+  ): Promise<string> {
+    const status = this.router.getStatus(conversationKey);
+    if (command.action === "show") {
+      return `当前 session Effort：${status.reasoningEffort ?? "Codex CLI 默认"}`;
+    }
+    if (command.action === "default") {
+      const target = this.account.reasoningEffort;
+      const error = this.applySessionRuntime(conversationKey, { reasoningEffort: target });
+      return error ?? `当前 session Effort 已恢复账户默认值：${target ?? "Codex CLI 默认"}。`;
+    }
+
+    const models = await this.readModelCatalog();
+    const model = resolveCurrentModelOption(models, status.model);
+    if (!model) {
+      return `模型 ${status.model ?? "Codex CLI 默认"} 不在当前模型目录中。`;
+    }
+    if (!model.supportedReasoningEfforts.length) {
+      return `模型 ${model.model} 没有返回可用的 Effort。`;
+    }
+    if (command.action === "list") {
+      return [
+        `模型 ${model.model} 支持的 Effort：`,
+        ...model.supportedReasoningEfforts.map((option) =>
+          formatEffortOption(
+            option.reasoningEffort,
+            status.reasoningEffort,
+            model.defaultReasoningEffort
+          )
+        ),
+      ].join("\n");
+    }
+
+    const effort = normalizeCodexReasoningEffort(command.value);
+    if (
+      !effort ||
+      !model.supportedReasoningEfforts.some((option) => option.reasoningEffort === effort)
+    ) {
+      return `模型 ${model.model} 不支持 Effort：${command.value}。发送 /effort list 查看可用值。`;
+    }
+    const error = this.applySessionRuntime(conversationKey, { reasoningEffort: effort });
+    return error ?? `当前 session Effort 已切换为：${effort}。`;
+  }
+
+  private async buildFastCommandReply(
+    conversationKey: string,
+    command: Extract<FeishuCommand, { type: "fast" }>
+  ): Promise<string> {
+    const status = this.router.getStatus(conversationKey);
+    const target =
+      command.action === "default"
+        ? this.account.fast
+        : command.action === "on"
+          ? true
+          : command.action === "off"
+            ? false
+            : status.fast !== true;
+
+    if (target === true && command.action !== "default") {
+      const models = await this.readModelCatalog();
+      const model = resolveCurrentModelOption(models, status.model);
+      if (!model) {
+        return `模型 ${status.model ?? "Codex CLI 默认"} 不在当前模型目录中。`;
+      }
+      if (!model.supportsFast) return `模型 ${model.model} 不支持 Fast。`;
+    }
+
+    const error = this.applySessionRuntime(conversationKey, { fast: target });
+    if (error) return error;
+    if (command.action === "default") {
+      return `当前 session Fast 已恢复账户默认值：${formatFastValue(target)}。`;
+    }
+    return `当前 session Fast 已${target ? "开启" : "关闭"}。`;
+  }
+
+  private applySessionRuntime(
+    conversationKey: string,
+    settings: CodexRuntimeTuning & { model?: string }
+  ): string | null {
+    if (!this.router.updateCurrentSessionRuntime) {
+      return "当前会话模式不支持修改 session 运行参数。";
+    }
+    return this.router.updateCurrentSessionRuntime(conversationKey, settings)
+      ? null
+      : "当前 session 正在运行，请等待完成或先发送 /stop。";
+  }
+
+  private async readModelCatalog(): Promise<CodexModelOption[]> {
+    if (!this.modelCatalogProvider) throw new Error("当前服务未配置模型目录");
+    return this.modelCatalogProvider();
   }
 
   private async buildArchivedSessionReply(
@@ -794,7 +965,16 @@ type FeishuCommand =
   | { type: "resume"; selection: number }
   | { type: "fork"; selection: number }
   | { type: "summary"; selection?: number; refresh: boolean }
-  | { type: "file"; path: string };
+  | { type: "file"; path: string }
+  | { type: "model"; action: "show" | "list" | "default" | "set"; value?: string }
+  | { type: "effort"; action: "show" | "list" | "default" | "set"; value?: string }
+  | { type: "fast"; action: "toggle" | "on" | "off" | "default" }
+  | { type: "invalid"; usage: string };
+
+type RuntimeSettingsCommand = Extract<
+  FeishuCommand,
+  { type: "model" | "effort" | "fast" }
+>;
 
 type SessionCount = number | "all";
 type ArchivedSessionCommand = Extract<
@@ -808,6 +988,8 @@ function parseCommand(text: string): FeishuCommand | null {
   if (normalized === "/new" || normalized === "/clear") return { type: "new" };
   if (normalized === "/stop") return { type: "stop" };
   if (normalized === "/status") return { type: "status" };
+  const runtime = parseRuntimeSettingsCommand(trimmed);
+  if (runtime) return runtime;
   const sessions = parseSessionsCommand(trimmed);
   if (sessions) return sessions;
   const summary = parseSummaryCommand(trimmed);
@@ -822,6 +1004,99 @@ function parseCommand(text: string): FeishuCommand | null {
   const file = trimmed.match(/^\/(?:file|sendfile)\s+(.+)$/i);
   if (file) return { type: "file", path: file[1].trim() };
   return null;
+}
+
+function parseRuntimeSettingsCommand(text: string): FeishuCommand | null {
+  const tokens = text.trim().split(/\s+/);
+  const name = tokens[0]?.toLowerCase();
+  if (name === "/model") {
+    if (tokens.length === 1) return { type: "model", action: "show" };
+    if (tokens.length === 2 && tokens[1].toLowerCase() === "list") {
+      return { type: "model", action: "list" };
+    }
+    if (tokens.length === 2 && tokens[1].toLowerCase() === "default") {
+      return { type: "model", action: "default" };
+    }
+    if (tokens.length === 2) return { type: "model", action: "set", value: tokens[1] };
+    return {
+      type: "invalid",
+      usage: "用法：/model [list|default|<model_id>]",
+    };
+  }
+  if (name === "/effort") {
+    if (tokens.length === 1) return { type: "effort", action: "show" };
+    if (tokens.length === 2 && tokens[1].toLowerCase() === "list") {
+      return { type: "effort", action: "list" };
+    }
+    if (tokens.length === 2 && tokens[1].toLowerCase() === "default") {
+      return { type: "effort", action: "default" };
+    }
+    if (tokens.length === 2) return { type: "effort", action: "set", value: tokens[1] };
+    return {
+      type: "invalid",
+      usage: "用法：/effort [list|default|<value>]",
+    };
+  }
+  if (name === "/fast") {
+    if (tokens.length === 1) return { type: "fast", action: "toggle" };
+    const action = tokens[1]?.toLowerCase();
+    if (
+      tokens.length === 2 &&
+      (action === "on" || action === "off" || action === "default")
+    ) {
+      return { type: "fast", action };
+    }
+    return {
+      type: "invalid",
+      usage: "用法：/fast [on|off|default]",
+    };
+  }
+  return null;
+}
+
+function isRuntimeMutation(command: RuntimeSettingsCommand): boolean {
+  return command.type === "fast" || command.action === "default" || command.action === "set";
+}
+
+function resolveCurrentModelOption(
+  models: CodexModelOption[],
+  currentModel?: string
+): CodexModelOption | undefined {
+  if (currentModel) {
+    return models.find((model) => model.model === currentModel || model.id === currentModel);
+  }
+  return models.find((model) => model.isDefault);
+}
+
+function formatModelOption(model: CodexModelOption, currentModel?: string): string {
+  const markers: string[] = [];
+  if (
+    currentModel
+      ? model.model === currentModel || model.id === currentModel
+      : model.isDefault
+  ) {
+    markers.push("当前");
+  }
+  if (model.isDefault) markers.push("CLI 默认");
+  const displayName = model.displayName && model.displayName !== model.model
+    ? ` · ${model.displayName}`
+    : "";
+  return `- ${model.model}${displayName}${markers.length ? `（${markers.join("、")}）` : ""}`;
+}
+
+function formatEffortOption(
+  effort: CodexReasoningEffort,
+  currentEffort?: CodexReasoningEffort,
+  defaultEffort?: CodexReasoningEffort
+): string {
+  const markers: string[] = [];
+  if (currentEffort ? effort === currentEffort : effort === defaultEffort) markers.push("当前");
+  if (effort === defaultEffort) markers.push("模型默认");
+  return `- ${effort}${markers.length ? `（${markers.join("、")}）` : ""}`;
+}
+
+function formatFastValue(value: boolean | undefined): string {
+  return value === true ? "开启" : value === false ? "关闭" : "CLI 默认";
 }
 
 function parseSummaryCommand(text: string): FeishuCommand | null {

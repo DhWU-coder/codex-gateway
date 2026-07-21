@@ -232,6 +232,95 @@ describe("Codex session router", () => {
     });
   });
 
+  test("updates and persists runtime settings for the current session", async () => {
+    const historyBaseDir = mkdtempSync(join(tmpdir(), "codex-gateway-router-session-runtime-"));
+    const calls: Array<{
+      model?: string;
+      reasoningEffort?: string;
+      fast?: boolean;
+    }> = [];
+    const router = new CodexSessionRouter({
+      cwd: "/tmp/work",
+      model: "gpt-default",
+      reasoningEffort: "medium",
+      fast: false,
+      historyBaseDir,
+      runner: async (input) => {
+        calls.push({
+          model: input.model,
+          reasoningEffort: input.reasoningEffort,
+          fast: input.fast,
+        });
+        return { text: "完成", sessionId: input.sessionId ?? "codex-session-1" };
+      },
+    });
+
+    expect(
+      router.updateCurrentSessionRuntime("dm:ou_sender", {
+        model: "gpt-session",
+        reasoningEffort: "high",
+        fast: true,
+      })
+    ).toBe(true);
+    expect(router.getStatus("dm:ou_sender")).toMatchObject({
+      model: "gpt-session",
+      reasoningEffort: "high",
+      fast: true,
+      messageCount: 0,
+    });
+
+    await router.send("dm:ou_sender", "执行任务");
+
+    expect(calls).toEqual([
+      { model: "gpt-session", reasoningEffort: "high", fast: true },
+    ]);
+    const restored = new CodexSessionRouter({
+      cwd: "/tmp/work",
+      model: "gpt-default",
+      reasoningEffort: "medium",
+      fast: false,
+      historyBaseDir,
+      runner: async () => ({ text: "" }),
+    });
+    expect(restored.getStatus("dm:ou_sender")).toMatchObject({
+      model: "gpt-session",
+      reasoningEffort: "high",
+      fast: true,
+    });
+  });
+
+  test("rejects runtime setting changes while the current session is running", async () => {
+    let notifyStarted: (() => void) | undefined;
+    let finishRun: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      notifyStarted = resolve;
+    });
+    const pending = new Promise<void>((resolve) => {
+      finishRun = resolve;
+    });
+    const router = new CodexSessionRouter({
+      cwd: "/tmp/work",
+      model: "gpt-default",
+      historyBaseDir: mkdtempSync(join(tmpdir(), "codex-gateway-router-runtime-busy-")),
+      runner: async () => {
+        notifyStarted?.();
+        await pending;
+        return { text: "完成", sessionId: "codex-session-1" };
+      },
+    });
+
+    const sending = router.send("dm:ou_sender", "执行中");
+    await started;
+
+    expect(
+      router.updateCurrentSessionRuntime("dm:ou_sender", { model: "gpt-session" })
+    ).toBe(false);
+    expect(router.getStatus("dm:ou_sender").model).toBe("gpt-default");
+
+    finishRun?.();
+    await sending;
+  });
+
   test("resumes a selected archived Codex session", async () => {
     const calls: Array<{ prompt: string; sessionId?: string; resume: boolean }> = [];
     const router = new CodexSessionRouter({

@@ -2,6 +2,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import type { CodexModelOption } from "../src/codex/model-catalog.js";
+import type { CodexReasoningEffort } from "../src/codex/runtime-settings.js";
 import { FeishuChannel } from "../src/feishu/channel.js";
 
 describe("Feishu channel", () => {
@@ -265,6 +267,8 @@ describe("Feishu channel", () => {
           archiveId: "archive-current",
           cwd,
           model: "gpt-5",
+          reasoningEffort: "high",
+          fast: true,
           messageCount: 4,
         }),
         listArchivedSessions: () => sessions,
@@ -348,6 +352,8 @@ describe("Feishu channel", () => {
     ]);
     expect(replies.find((reply) => reply.startsWith("om_status:"))).toContain("账号：test");
     expect(replies.find((reply) => reply.startsWith("om_status:"))).toContain("Archive：archive-current");
+    expect(replies.find((reply) => reply.startsWith("om_status:"))).toContain("Effort：high");
+    expect(replies.find((reply) => reply.startsWith("om_status:"))).toContain("Fast：开启");
     const listReply = replies.find((reply) => reply.startsWith("om_sessions:")) ?? "";
     expect(listReply).toContain("1. 当前");
     expect(listReply).not.toContain("archive-old");
@@ -360,6 +366,158 @@ describe("Feishu channel", () => {
     expect(replies.find((reply) => reply.startsWith("om_fork:"))).toContain("fork 自：archive-current");
     expect(replies.find((reply) => reply.startsWith("om_one_summary:"))).toContain("主题：历史总结");
     rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("lists and switches the current session model", async () => {
+    const replies: string[] = [];
+    const updates: unknown[] = [];
+    const runtime = {
+      running: false,
+      model: "gpt-a",
+      reasoningEffort: "medium" as const,
+      fast: false,
+    };
+    const channel = new FeishuChannel({
+      account: { ...account("/tmp/work"), model: "gpt-default" },
+      modelCatalogProvider: async () => modelOptions(),
+      messageClient: replyCollector(replies),
+      router: runtimeRouter(runtime, updates),
+    });
+
+    await channel.handleEvent(textPayload("/model", "om_model_current"));
+    await channel.handleEvent(textPayload("/model list", "om_model_list"));
+    await channel.handleEvent(textPayload("/model model-b-id", "om_model_switch"));
+    await channel.handleEvent(textPayload("/model default", "om_model_default"));
+
+    expect(replies[0]).toContain("当前 session 模型：gpt-a");
+    expect(replies[1]).toContain("gpt-a");
+    expect(replies[1]).toContain("当前");
+    expect(replies[1]).toContain("gpt-b");
+    expect(replies[1]).toContain("CLI 默认");
+    expect(replies[2]).toContain("gpt-b");
+    expect(replies[3]).toContain("gpt-default");
+    expect(updates).toEqual([{ model: "gpt-b" }, { model: "gpt-default" }]);
+  });
+
+  test("lists and switches Effort using the current model capabilities", async () => {
+    const replies: string[] = [];
+    const updates: unknown[] = [];
+    const runtime = {
+      running: false,
+      model: "gpt-a",
+      reasoningEffort: "high" as const,
+      fast: false,
+    };
+    const channel = new FeishuChannel({
+      account: { ...account("/tmp/work"), reasoningEffort: "medium" },
+      modelCatalogProvider: async () => modelOptions(),
+      messageClient: replyCollector(replies),
+      router: runtimeRouter(runtime, updates),
+    });
+
+    await channel.handleEvent(textPayload("/effort", "om_effort_current"));
+    await channel.handleEvent(textPayload("/effort list", "om_effort_list"));
+    await channel.handleEvent(textPayload("/effort low", "om_effort_switch"));
+    await channel.handleEvent(textPayload("/effort default", "om_effort_default"));
+    await channel.handleEvent(textPayload("/effort ultra", "om_effort_invalid"));
+
+    expect(replies[0]).toContain("当前 session Effort：high");
+    expect(replies[1]).toContain("模型 gpt-a 支持的 Effort");
+    expect(replies[1]).toContain("low（模型默认）");
+    expect(replies[1]).toContain("high（当前）");
+    expect(replies[2]).toContain("low");
+    expect(replies[3]).toContain("medium");
+    expect(replies[4]).toContain("不支持 Effort：ultra");
+    expect(updates).toEqual([
+      { reasoningEffort: "low" },
+      { reasoningEffort: "medium" },
+    ]);
+  });
+
+  test("toggles Fast in the current session and rejects unsupported models", async () => {
+    const replies: string[] = [];
+    const updates: unknown[] = [];
+    const runtime = {
+      running: false,
+      model: "gpt-a",
+      reasoningEffort: "medium" as const,
+      fast: false,
+    };
+    const channel = new FeishuChannel({
+      account: { ...account("/tmp/work"), fast: false },
+      modelCatalogProvider: async () => modelOptions(),
+      messageClient: replyCollector(replies),
+      router: runtimeRouter(runtime, updates),
+    });
+
+    await channel.handleEvent(textPayload("/fast", "om_fast_toggle"));
+    await channel.handleEvent(textPayload("/fast off", "om_fast_off"));
+    await channel.handleEvent(textPayload("/fast default", "om_fast_default"));
+    runtime.model = "gpt-b";
+    await channel.handleEvent(textPayload("/fast on", "om_fast_unsupported"));
+
+    expect(replies[0]).toContain("Fast 已开启");
+    expect(replies[1]).toContain("Fast 已关闭");
+    expect(replies[2]).toContain("账户默认值：关闭");
+    expect(replies[3]).toContain("模型 gpt-b 不支持 Fast");
+    expect(updates).toEqual([{ fast: true }, { fast: false }, { fast: false }]);
+  });
+
+  test("restores the account Fast default without reading model capabilities", async () => {
+    const replies: string[] = [];
+    const updates: unknown[] = [];
+    const runtime = {
+      running: false,
+      model: "custom-model",
+      reasoningEffort: "medium" as const,
+      fast: false,
+    };
+    const channel = new FeishuChannel({
+      account: { ...account("/tmp/work"), fast: true },
+      modelCatalogProvider: async () => {
+        throw new Error("不应读取模型目录");
+      },
+      messageClient: replyCollector(replies),
+      router: runtimeRouter(runtime, updates),
+    });
+
+    await channel.handleEvent(textPayload("/fast default", "om_fast_default_on"));
+
+    expect(replies[0]).toContain("账户默认值：开启");
+    expect(updates).toEqual([{ fast: true }]);
+  });
+
+  test("rejects runtime changes while running and handles model catalog errors", async () => {
+    const replies: string[] = [];
+    const routed: string[] = [];
+    const runtime = {
+      running: true,
+      model: "gpt-a",
+      reasoningEffort: "medium" as const,
+      fast: false,
+    };
+    const router = runtimeRouter(runtime, []);
+    router.send = async (_conversationKey, prompt) => {
+      routed.push(prompt);
+    };
+    const channel = new FeishuChannel({
+      account: account("/tmp/work"),
+      modelCatalogProvider: async () => {
+        throw new Error("目录不可用");
+      },
+      messageClient: replyCollector(replies),
+      router,
+    });
+
+    await channel.handleEvent(textPayload("/model gpt-b", "om_model_busy"));
+    runtime.running = false;
+    await channel.handleEvent(textPayload("/model list", "om_model_error"));
+    await channel.handleEvent(textPayload("/fast maybe", "om_fast_usage"));
+
+    expect(replies[0]).toContain("当前 session 正在运行");
+    expect(replies[1]).toContain("读取模型目录失败：目录不可用");
+    expect(replies[2]).toContain("用法：/fast [on|off|default]");
+    expect(routed).toEqual([]);
   });
 
   test("reports empty or missing archived session selections", async () => {
@@ -646,6 +804,74 @@ function account(cwd: string) {
     historyBaseDir: join(cwd, "history"),
     sendProgressReplies: false,
   };
+}
+
+function replyCollector(replies: string[]) {
+  return {
+    async replyText(input: { text: string }) {
+      replies.push(input.text);
+    },
+    async sendText() {},
+  };
+}
+
+function runtimeRouter(
+  runtime: {
+    running: boolean;
+    model?: string;
+    reasoningEffort?: CodexReasoningEffort;
+    fast?: boolean;
+  },
+  updates: unknown[]
+) {
+  return {
+    async send(_conversationKey: string, _prompt: string) {},
+    resetSession() {},
+    stopSession: () => true,
+    stopAll() {},
+    getStatus: () => ({ ...runtime }),
+    updateCurrentSessionRuntime(
+      _conversationKey: string,
+      settings: { model?: string; reasoningEffort?: CodexReasoningEffort; fast?: boolean }
+    ) {
+      if (runtime.running) return false;
+      updates.push({ ...settings });
+      Object.assign(runtime, settings);
+      return true;
+    },
+  };
+}
+
+function modelOptions(): CodexModelOption[] {
+  return [
+    {
+      id: "model-a-id",
+      model: "gpt-a",
+      displayName: "GPT A",
+      description: "模型 A",
+      supportedReasoningEfforts: [
+        { reasoningEffort: "low", description: "低" },
+        { reasoningEffort: "high", description: "高" },
+      ],
+      defaultReasoningEffort: "low",
+      additionalSpeedTiers: ["fast"],
+      serviceTiers: [],
+      supportsFast: true,
+      isDefault: true,
+    },
+    {
+      id: "model-b-id",
+      model: "gpt-b",
+      displayName: "GPT B",
+      description: "模型 B",
+      supportedReasoningEfforts: [{ reasoningEffort: "medium", description: "中" }],
+      defaultReasoningEffort: "medium",
+      additionalSpeedTiers: [],
+      serviceTiers: [],
+      supportsFast: false,
+      isDefault: false,
+    },
+  ];
 }
 
 function textPayload(text: string, messageId: string) {

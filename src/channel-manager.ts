@@ -1,4 +1,5 @@
 import type { FeishuAccountConfig, GatewayConfig } from "./config.js";
+import type { CodexModelOption } from "./codex/model-catalog.js";
 import type { CodexReasoningEffort, CodexVerbosity } from "./codex/runtime-settings.js";
 import { FeishuChannel } from "./feishu/channel.js";
 import { createFeishuSdkClients } from "./feishu/client.js";
@@ -48,7 +49,15 @@ export interface ManagedChannelStatus {
 export interface ChannelManagerOptions {
   config: GatewayConfig;
   projectRoot?: string;
-  createFeishuChannel?: (account: FeishuAccountConfig) => ManagedChannel;
+  modelCatalogProvider?: () => Promise<CodexModelOption[]>;
+  createFeishuChannel?: (
+    account: FeishuAccountConfig,
+    dependencies?: ChannelManagerDependencies
+  ) => ManagedChannel;
+}
+
+export interface ChannelManagerDependencies {
+  modelCatalogProvider?: () => Promise<CodexModelOption[]>;
 }
 
 export interface ChannelReloadResult {
@@ -68,9 +77,19 @@ export class ChannelManager {
   private started = false;
 
   constructor(private readonly options: ChannelManagerOptions) {
-    this.createFeishuChannel =
-      options.createFeishuChannel ??
-      ((item) => createDefaultFeishuChannel(item, options.config, options.projectRoot));
+    const customFactory = options.createFeishuChannel;
+    const dependencies: ChannelManagerDependencies = {
+      modelCatalogProvider: options.modelCatalogProvider,
+    };
+    this.createFeishuChannel = customFactory
+      ? (item) => customFactory(item, dependencies)
+      : (item) =>
+          createDefaultFeishuChannel(
+            item,
+            options.config,
+            options.projectRoot,
+            options.modelCatalogProvider
+          );
     for (const account of options.config.channels.feishu.accounts) {
       const channel = this.createFeishuChannel(account);
       this.channels.set(channel.id, channel);
@@ -367,12 +386,14 @@ function formatError(error: unknown): string {
 function createDefaultFeishuChannel(
   account: FeishuAccountConfig,
   config: GatewayConfig,
-  projectRoot?: string
+  projectRoot?: string,
+  modelCatalogProvider?: () => Promise<CodexModelOption[]>
 ): ManagedChannel {
   return new FeishuChannel({
     account,
     codex: config.codex,
     projectRoot,
+    modelCatalogProvider,
     ...(account.enabled ? createFeishuSdkClients(account) : {}),
   });
 }
