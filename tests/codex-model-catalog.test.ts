@@ -93,6 +93,51 @@ describe("Codex model catalog", () => {
     expect(readFileSync(counterPath, "utf-8")).toBe("1");
   });
 
+  test("reads the effective Codex CLI verbosity from app-server config", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "codex-gateway-runtime-defaults-"));
+    const command = createFakeCodex(directory, [], undefined, "high");
+    const catalog = createCodexModelCatalog({ command, timeoutMs: 1_000 });
+
+    expect(await catalog.runtimeDefaults()).toEqual({ verbosity: "high" });
+  });
+
+  test("falls back to medium verbosity and shares the model catalog cache", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "codex-gateway-runtime-fallback-"));
+    const counterPath = join(directory, "count.txt");
+    const command = createFakeCodex(directory, [], counterPath, null);
+    const catalog = createCodexModelCatalog({ command, timeoutMs: 1_000, ttlMs: 60_000 });
+
+    await catalog.list();
+    expect(await catalog.runtimeDefaults()).toEqual({ verbosity: "medium" });
+
+    expect(readFileSync(counterPath, "utf-8")).toBe("1");
+  });
+
+  test("keeps the model list available when config read does not respond", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "codex-gateway-config-timeout-"));
+    const command = createFakeCodex(
+      directory,
+      [
+        {
+          id: "gpt-compatible",
+          model: "gpt-compatible",
+          displayName: "GPT Compatible",
+          hidden: false,
+          isDefault: true,
+        },
+      ],
+      undefined,
+      null,
+      false
+    );
+    const catalog = createCodexModelCatalog({ command, timeoutMs: 500 });
+
+    expect(await catalog.list()).toEqual([
+      expect.objectContaining({ model: "gpt-compatible", isDefault: true }),
+    ]);
+    expect(await catalog.runtimeDefaults()).toEqual({ verbosity: "medium" });
+  });
+
   test("rejects malformed app-server output", async () => {
     const directory = mkdtempSync(join(tmpdir(), "codex-gateway-model-invalid-"));
     const command = join(directory, "fake-codex");
@@ -130,7 +175,9 @@ describe("Codex model catalog", () => {
 function createFakeCodex(
   directory: string,
   models: Array<Record<string, unknown>>,
-  counterPath?: string
+  counterPath?: string,
+  verbosity: string | null = null,
+  respondToConfig = true
 ): string {
   const command = join(directory, "fake-codex");
   writeFileSync(
@@ -149,6 +196,11 @@ function createFakeCodex(
       "  if (message.method === 'model/list') {",
       `    console.log(JSON.stringify({ id: message.id, result: { data: ${JSON.stringify(models)}, nextCursor: null } }));`,
       "  }",
+      respondToConfig ? "  if (message.method === 'config/read') {" : "",
+      respondToConfig
+        ? `    console.log(JSON.stringify({ id: message.id, result: { config: { model_verbosity: ${JSON.stringify(verbosity)} }, origins: {} } }));`
+        : "",
+      respondToConfig ? "  }" : "",
       "}",
     ]
       .filter(Boolean)

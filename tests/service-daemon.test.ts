@@ -85,6 +85,9 @@ describe("服务 Daemon 配置热更新", () => {
               },
             ];
           },
+          async runtimeDefaults() {
+            return { verbosity: "high" };
+          },
         };
       },
       createConfigWatcher: (options) => {
@@ -109,6 +112,7 @@ describe("服务 Daemon 配置热更新", () => {
       expect(await webOptions?.modelCatalogProvider?.()).toEqual([
         expect.objectContaining({ model: "gpt-test", isDefault: true }),
       ]);
+      expect(await webOptions?.codexRuntimeDefaultsProvider?.()).toEqual({ verbosity: "high" });
       await webOptions?.restartService?.();
       expect(restartOptions).toMatchObject({
         cwd: directory,

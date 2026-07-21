@@ -72,6 +72,8 @@ export async function startServiceDaemon(
     options.createChannelManager?.(config) ?? new ChannelManager({ config, projectRoot });
   const modelCatalog = (options.createModelCatalog ?? createCodexModelCatalog)({
     command: config.codex.command,
+    cwd,
+    profile: config.codex.profile,
   });
   await channelManager.start();
 
@@ -135,6 +137,7 @@ export async function startServiceDaemon(
     logPath,
     configReloadStateProvider: () => configReloadState,
     modelCatalogProvider: () => modelCatalog.list(),
+    codexRuntimeDefaultsProvider: () => modelCatalog.runtimeDefaults(),
   });
   const host = "127.0.0.1";
   const boundPort = webServer.port ?? options.port;

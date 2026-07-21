@@ -2,7 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { ChannelManager } from "./channel-manager.js";
 import { loadGatewayConfig } from "./config.js";
-import type { CodexModelOption } from "./codex/model-catalog.js";
+import type {
+  CodexModelOption,
+  CodexRuntimeDefaults,
+} from "./codex/model-catalog.js";
 import type { ServiceState } from "./service/state.js";
 import {
   getCodexModelEditorState,
@@ -29,6 +32,7 @@ export interface WebServerOptions {
   logPath?: string;
   configReloadStateProvider?: () => unknown;
   modelCatalogProvider?: () => Promise<CodexModelOption[]>;
+  codexRuntimeDefaultsProvider?: () => Promise<CodexRuntimeDefaults>;
 }
 
 export interface WebRequestOptions {
@@ -42,6 +46,7 @@ export interface WebRequestOptions {
   logPath?: string;
   configReloadStateProvider?: () => unknown;
   modelCatalogProvider?: () => Promise<CodexModelOption[]>;
+  codexRuntimeDefaultsProvider?: () => Promise<CodexRuntimeDefaults>;
 }
 
 export interface WebChannelManager {
@@ -113,7 +118,12 @@ export async function handleWebRequest(
       return jsonResponse({ error: "Codex 模型目录不可用。" }, 503);
     }
     try {
-      return jsonResponse({ models: await options.modelCatalogProvider() });
+      const models = await options.modelCatalogProvider();
+      let defaults: CodexRuntimeDefaults = { verbosity: "medium" };
+      try {
+        defaults = (await options.codexRuntimeDefaultsProvider?.()) ?? defaults;
+      } catch {}
+      return jsonResponse({ models, defaults });
     } catch (error) {
       return jsonResponse({ error: formatError(error) }, 500);
     }

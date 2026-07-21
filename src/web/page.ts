@@ -149,6 +149,7 @@ export function renderAdminPage(): string {
     .definition-list dd { overflow-wrap: anywhere; }
     .definition-list dd .model-combo { max-width: 520px; }
     .definition-control { max-width: 520px; display: grid; gap: 5px; }
+    .runtime-setting-value { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); color: var(--muted); overflow-wrap: anywhere; }
     .runtime-fields { display: contents; }
     .field-note { min-height: 17px; color: var(--muted); font-size: 11px; }
     .field-note.warning { color: var(--warning); }
@@ -398,6 +399,7 @@ export function renderAdminPage(): string {
       codexFastDraft: null,
       codexVerbosityDraft: "",
       modelOptions: [],
+      codexRuntimeDefaults: { verbosity: "medium" },
       modelCatalogError: "",
       accounts: { accounts: [] },
       editingAccounts: new Set(),
@@ -571,9 +573,11 @@ export function renderAdminPage(): string {
       try {
         const result = await api("/api/models");
         view.modelOptions = result.models || [];
+        view.codexRuntimeDefaults = result.defaults || { verbosity: "medium" };
         view.modelCatalogError = "";
       } catch (error) {
         view.modelOptions = [];
+        view.codexRuntimeDefaults = { verbosity: "medium" };
         view.modelCatalogError = error instanceof Error ? error.message : String(error);
       }
       if (view.publicConfig && !view.editingCodexModel) renderPublicConfig();
@@ -848,11 +852,7 @@ export function renderAdminPage(): string {
     }
     function createRuntimeSettingDisplay(key, value, effectiveValue, scope, model) {
       const wrapper = make("div", "definition-control");
-      const input = document.createElement("input");
-      input.type = "text";
-      input.readOnly = true;
-      input.value = formatRuntimeSetting(key, value, effectiveValue, scope, model);
-      wrapper.append(input);
+      wrapper.append(make("div", "runtime-setting-value", formatRuntimeSetting(key, value, effectiveValue, scope, model)));
       const note = make("span", "field-note");
       note.dataset.runtimeNote = key;
       wrapper.append(note);
@@ -864,7 +864,7 @@ export function renderAdminPage(): string {
       return typeof value === "string" ? value : "";
     }
     function runtimeSettingOptions(key, scope, model, currentValue) {
-      const inheritedLabel = scope === "account" ? "继承全局" : "Codex CLI 默认";
+      const inheritedLabel = runtimeDefaultLabel(key, scope);
       if (key === "reasoningEffort") {
         const item = modelCatalogItem(model);
         const supported = item && Array.isArray(item.supportedReasoningEfforts) && item.supportedReasoningEfforts.length ? item.supportedReasoningEfforts.map((option) => option.reasoningEffort) : REASONING_EFFORTS;
@@ -884,6 +884,13 @@ export function renderAdminPage(): string {
         ];
       }
       return [{ value: "", label: inheritedLabel }].concat(VERBOSITIES.map((verbosity) => ({ value: verbosity, label: verbosity })));
+    }
+    function runtimeDefaultLabel(key, scope) {
+      if (key !== "verbosity") return scope === "account" ? "继承全局" : "Codex CLI 默认";
+      const cliDefault = VERBOSITIES.includes(view.codexRuntimeDefaults && view.codexRuntimeDefaults.verbosity) ? view.codexRuntimeDefaults.verbosity : "medium";
+      const globalVerbosity = view.publicConfig && view.publicConfig.codex && view.publicConfig.codex.verbosity;
+      if (scope === "account") return "继承全局（当前：" + (globalVerbosity || cliDefault) + "）";
+      return "Codex CLI 默认（当前：" + cliDefault + "）";
     }
     function populateRuntimeSettingSelect(select, model, value) {
       const options = runtimeSettingOptions(select.dataset.runtimeKey, select.dataset.runtimeScope, model, value);
@@ -914,6 +921,8 @@ export function renderAdminPage(): string {
     }
     function formatRuntimeSetting(key, value, effectiveValue, scope, model) {
       const inherited = scope === "account" && (value === "" || value === null || value === undefined);
+      const unset = value === "" || value === null || value === undefined;
+      if (key === "verbosity" && unset) return runtimeDefaultLabel(key, scope);
       let resolved = inherited ? effectiveValue : value;
       let text;
       if (key === "fast") text = typeof resolved === "boolean" ? (resolved ? "开启" : "关闭") : "Codex CLI 默认";

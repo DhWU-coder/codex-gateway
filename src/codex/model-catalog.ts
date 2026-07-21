@@ -2,7 +2,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import {
   type CodexReasoningEffort,
+  type CodexVerbosity,
   normalizeCodexReasoningEffort,
+  normalizeCodexVerbosity,
 } from "./runtime-settings.js";
 
 export interface CodexModelOption {
@@ -31,12 +33,19 @@ export interface CodexModelServiceTier {
 
 export interface ReadCodexModelsOptions {
   command?: string;
+  cwd?: string;
+  profile?: string;
   timeoutMs?: number;
   spawnProcess?: typeof spawn;
 }
 
+export interface CodexRuntimeDefaults {
+  verbosity: CodexVerbosity;
+}
+
 export interface CodexModelCatalog {
   list(): Promise<CodexModelOption[]>;
+  runtimeDefaults(): Promise<CodexRuntimeDefaults>;
 }
 
 export interface CreateCodexModelCatalogOptions extends ReadCodexModelsOptions {
@@ -46,18 +55,34 @@ export interface CreateCodexModelCatalogOptions extends ReadCodexModelsOptions {
 
 const INITIALIZE_REQUEST_ID = 1;
 const MODEL_LIST_REQUEST_ID = 2;
+const CONFIG_READ_REQUEST_ID = 3;
+const FALLBACK_RUNTIME_DEFAULTS: CodexRuntimeDefaults = { verbosity: "medium" };
+
+interface CodexCatalogSnapshot {
+  models: CodexModelOption[];
+  defaults: CodexRuntimeDefaults;
+}
 
 export async function readCodexModels(
   options: ReadCodexModelsOptions = {}
 ): Promise<CodexModelOption[]> {
+  return (await readCodexCatalogSnapshot(options)).models;
+}
+
+async function readCodexCatalogSnapshot(
+  options: ReadCodexModelsOptions = {}
+): Promise<CodexCatalogSnapshot> {
   const command = options.command?.trim() || "codex";
   const timeoutMs = positiveNumber(options.timeoutMs, 10_000);
   const spawnProcess = options.spawnProcess ?? spawn;
+  const profile = options.profile?.trim();
+  const args = [...(profile ? ["--profile", profile] : []), "app-server", "--stdio"];
 
-  return new Promise<CodexModelOption[]>((resolve, reject) => {
+  return new Promise<CodexCatalogSnapshot>((resolve, reject) => {
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawnProcess(command, ["app-server", "--stdio"], {
+      child = spawnProcess(command, args, {
+        ...(options.cwd ? { cwd: options.cwd } : {}),
         stdio: ["pipe", "pipe", "pipe"],
       }) as ChildProcessWithoutNullStreams;
     } catch (error) {
@@ -68,18 +93,27 @@ export async function readCodexModels(
     const lines = createInterface({ input: child.stdout });
     let settled = false;
     let stderr = "";
+    let models: CodexModelOption[] | undefined;
+    let defaults: CodexRuntimeDefaults | undefined;
+    let configTimer: ReturnType<typeof setTimeout> | undefined;
     const timer = setTimeout(() => {
       finish(new Error(`读取 Codex 模型列表超时（${timeoutMs} ms）`));
     }, timeoutMs);
 
-    const finish = (error?: Error, models?: CodexModelOption[]) => {
+    const finish = (error?: Error, snapshot?: CodexCatalogSnapshot) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (configTimer) clearTimeout(configTimer);
       lines.close();
       child.kill();
       if (error) reject(error);
-      else resolve(models ?? []);
+      else resolve(snapshot ?? { models: [], defaults: FALLBACK_RUNTIME_DEFAULTS });
+    };
+
+    const maybeFinish = () => {
+      if (models === undefined || defaults === undefined) return;
+      finish(undefined, { models, defaults });
     };
 
     const send = (message: unknown) => {
@@ -94,6 +128,11 @@ export async function readCodexModels(
     });
     child.on("exit", (code, signal) => {
       if (settled) return;
+      if (models !== undefined) {
+        defaults ??= FALLBACK_RUNTIME_DEFAULTS;
+        maybeFinish();
+        return;
+      }
       const detail = stderr.trim();
       finish(
         new Error(
@@ -126,6 +165,15 @@ export async function readCodexModels(
           method: "model/list",
           params: { includeHidden: false, limit: 100 },
         });
+        send({
+          id: CONFIG_READ_REQUEST_ID,
+          method: "config/read",
+          params: { cwd: options.cwd ?? null, includeLayers: false },
+        });
+        configTimer = setTimeout(() => {
+          defaults ??= FALLBACK_RUNTIME_DEFAULTS;
+          maybeFinish();
+        }, Math.min(1_000, Math.max(1, Math.floor(timeoutMs / 2))));
         return;
       }
 
@@ -136,10 +184,20 @@ export async function readCodexModels(
           return;
         }
         try {
-          finish(undefined, normalizeModelList(message.result));
+          models = normalizeModelList(message.result);
+          maybeFinish();
         } catch (error) {
           finish(new Error(`Codex 模型列表格式无效：${formatError(error)}`));
         }
+        return;
+      }
+
+      if (message.id === CONFIG_READ_REQUEST_ID) {
+        const protocolError = readProtocolError(message);
+        defaults = protocolError
+          ? FALLBACK_RUNTIME_DEFAULTS
+          : normalizeRuntimeDefaults(message.result);
+        maybeFinish();
       }
     });
 
@@ -162,23 +220,38 @@ export function createCodexModelCatalog(
 ): CodexModelCatalog {
   const ttlMs = positiveNumber(options.ttlMs, 5 * 60_000);
   const now = options.now ?? Date.now;
-  let cached: { expiresAt: number; models: CodexModelOption[] } | undefined;
-  let pending: Promise<CodexModelOption[]> | undefined;
+  let cached: { expiresAt: number; snapshot: CodexCatalogSnapshot } | undefined;
+  let pending: Promise<CodexCatalogSnapshot> | undefined;
+
+  const readSnapshot = async () => {
+    if (cached && cached.expiresAt > now()) return cached.snapshot;
+    if (pending) return pending;
+    pending = readCodexCatalogSnapshot(options)
+      .then((snapshot) => {
+        cached = { expiresAt: now() + ttlMs, snapshot };
+        return snapshot;
+      })
+      .finally(() => {
+        pending = undefined;
+      });
+    return pending;
+  };
 
   return {
     async list() {
-      if (cached && cached.expiresAt > now()) return cached.models;
-      if (pending) return pending;
-      pending = readCodexModels(options)
-        .then((models) => {
-          cached = { expiresAt: now() + ttlMs, models };
-          return models;
-        })
-        .finally(() => {
-          pending = undefined;
-        });
-      return pending;
+      return (await readSnapshot()).models;
     },
+    async runtimeDefaults() {
+      return (await readSnapshot()).defaults;
+    },
+  };
+}
+
+function normalizeRuntimeDefaults(value: unknown): CodexRuntimeDefaults {
+  const result = isRecord(value) ? value : {};
+  const config = isRecord(result.config) ? result.config : {};
+  return {
+    verbosity: normalizeCodexVerbosity(config.model_verbosity) ?? "medium",
   };
 }
 
