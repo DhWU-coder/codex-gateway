@@ -11,10 +11,19 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import {
+  type CodexReasoningEffort,
+  type CodexVerbosity,
+  normalizeCodexReasoningEffort,
+  normalizeCodexVerbosity,
+} from "../codex/runtime-settings.js";
 
 export interface SessionDefaults {
   cwd: string;
   model?: string;
+  reasoningEffort?: CodexReasoningEffort;
+  fast?: boolean;
+  verbosity?: CodexVerbosity;
 }
 
 export interface SessionMetadata {
@@ -23,6 +32,10 @@ export interface SessionMetadata {
   sessionId?: string;
   cwd: string;
   model?: string;
+  reasoningEffort?: CodexReasoningEffort;
+  fast?: boolean;
+  verbosity?: CodexVerbosity;
+  runtimeSettingsCaptured?: boolean;
   nativeSessionStarted: boolean;
   createdAt: string;
   lastActiveAt: string;
@@ -249,6 +262,10 @@ export class SessionHistoryStore {
       conversationKey,
       cwd: input.cwd,
       model: input.model,
+      reasoningEffort: input.reasoningEffort,
+      fast: input.fast,
+      verbosity: input.verbosity,
+      runtimeSettingsCaptured: true,
       nativeSessionStarted: false,
       createdAt: now,
       lastActiveAt: now,
@@ -269,6 +286,9 @@ export class SessionHistoryStore {
       return {
         ...parsed,
         conversationKey,
+        reasoningEffort: normalizeCodexReasoningEffort(parsed.reasoningEffort),
+        fast: typeof parsed.fast === "boolean" ? parsed.fast : undefined,
+        verbosity: normalizeCodexVerbosity(parsed.verbosity),
         nativeSessionStarted: Boolean(parsed.sessionId) && parsed.nativeSessionStarted !== false,
         messageCount: Math.max(0, Number(parsed.messageCount) || 0),
       };
@@ -297,6 +317,10 @@ export class SessionHistoryStore {
         sessionId: legacy.sessionId,
         cwd: typeof legacy.cwd === "string" ? legacy.cwd : process.cwd(),
         model: typeof legacy.model === "string" ? legacy.model : undefined,
+        reasoningEffort: normalizeCodexReasoningEffort(legacy.reasoningEffort),
+        fast: typeof legacy.fast === "boolean" ? legacy.fast : undefined,
+        verbosity: normalizeCodexVerbosity(legacy.verbosity),
+        runtimeSettingsCaptured: legacy.runtimeSettingsCaptured === true,
         nativeSessionStarted: Boolean(legacy.sessionId),
         createdAt: typeof legacy.createdAt === "string" ? legacy.createdAt : now,
         lastActiveAt: typeof legacy.lastActiveAt === "string" ? legacy.lastActiveAt : now,

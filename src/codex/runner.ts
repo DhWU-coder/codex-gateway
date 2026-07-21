@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CodexSandboxMode } from "../config.js";
+import type { CodexReasoningEffort, CodexVerbosity } from "./runtime-settings.js";
 import {
   type CodexProgressEvent,
   parseCodexJsonEvents,
@@ -14,6 +15,9 @@ export interface CodexRunInput {
   cwd: string;
   prompt: string;
   model?: string;
+  reasoningEffort?: CodexReasoningEffort;
+  fast?: boolean;
+  verbosity?: CodexVerbosity;
   sessionId?: string;
   resume?: boolean;
   imagePaths?: string[];
@@ -56,6 +60,17 @@ export function buildCodexCommand(input: CodexRunInput & { outputFile: string })
   if (input.skipGitRepoCheck !== false) args.push("--skip-git-repo-check");
   if (!resume) args.push("-C", input.cwd);
   if (input.model) args.push("--model", input.model);
+  if (input.reasoningEffort) {
+    args.push("-c", `model_reasoning_effort=${JSON.stringify(input.reasoningEffort)}`);
+  }
+  if (input.verbosity) {
+    args.push("-c", `model_verbosity=${JSON.stringify(input.verbosity)}`);
+  }
+  if (input.fast === true) {
+    args.push("--enable", "fast_mode", "-c", 'service_tier="fast"');
+  } else if (input.fast === false) {
+    args.push("--disable", "fast_mode");
+  }
   if (input.profile && !resume) args.push("--profile", input.profile);
   if (input.sandbox && !resume && !input.dangerouslyBypassApprovalsAndSandbox) {
     args.push("--sandbox", input.sandbox);

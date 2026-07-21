@@ -10,6 +10,12 @@ import {
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import { parse, parseDocument } from "yaml";
+import {
+  type CodexReasoningEffort,
+  type CodexVerbosity,
+  normalizeCodexReasoningEffort,
+  normalizeCodexVerbosity,
+} from "../codex/runtime-settings.js";
 
 export interface FeishuAccountEditorState {
   id: string;
@@ -22,6 +28,9 @@ export interface FeishuAccountEditorState {
   domain: "feishu" | "lark";
   sendProgressReplies: boolean;
   model?: string;
+  reasoningEffort?: CodexReasoningEffort | "";
+  fast?: boolean | null;
+  verbosity?: CodexVerbosity | "";
   cwd?: string;
   historyBaseDir?: string;
 }
@@ -30,16 +39,63 @@ export interface FeishuAccountsEditorState {
   accounts: FeishuAccountEditorState[];
 }
 
+export interface CodexModelEditorState {
+  model: string;
+  reasoningEffort: CodexReasoningEffort | "";
+  fast: boolean | null;
+  verbosity: CodexVerbosity | "";
+}
+
+export interface SaveCodexModelInput {
+  model?: unknown;
+  reasoningEffort?: unknown;
+  fast?: unknown;
+  verbosity?: unknown;
+}
+
 export interface SaveFeishuAccountsInput {
   accounts?: Array<Partial<FeishuAccountEditorState>>;
 }
 
 type RawAccount = Record<string, unknown>;
 type RawConfig = Record<string, unknown> & {
+  codex?: Record<string, unknown>;
   channels?: {
     feishu?: Record<string, unknown> & { accounts?: unknown[] };
   };
 };
+
+export function getCodexModelEditorState(configPath: string): CodexModelEditorState {
+  const codex = readRawConfig(configPath).codex;
+  return {
+    model: readString(codex?.model) ?? "",
+    reasoningEffort: normalizeCodexReasoningEffort(codex?.reasoningEffort) ?? "",
+    fast: typeof codex?.fast === "boolean" ? codex.fast : null,
+    verbosity: normalizeCodexVerbosity(codex?.verbosity) ?? "",
+  };
+}
+
+export function saveCodexModelEditorState(
+  input: SaveCodexModelInput,
+  configPath: string
+): CodexModelEditorState {
+  if (typeof input.model !== "string") throw new Error("model 必须是字符串");
+  const text = existsSync(configPath) ? readFileSync(configPath, "utf-8") : "";
+  const document = parseDocument(text || "{}\n");
+  const model = readString(input.model);
+  if (model) document.setIn(["codex", "model"], model);
+  else document.deleteIn(["codex", "model"]);
+  updateGlobalEnum(
+    document,
+    input,
+    "reasoningEffort",
+    normalizeCodexReasoningEffort
+  );
+  updateGlobalFast(document, input);
+  updateGlobalEnum(document, input, "verbosity", normalizeCodexVerbosity);
+  writeConfigAtomically(configPath, document.toString());
+  return getCodexModelEditorState(configPath);
+}
 
 export function getFeishuAccountsEditorState(configPath: string): FeishuAccountsEditorState {
   return {
@@ -105,6 +161,34 @@ function normalizeSavedAccount(
   const botOpenId = readString(input.botOpenId);
   if (botOpenId) next.botOpenId = botOpenId;
   else delete next.botOpenId;
+  if (Object.prototype.hasOwnProperty.call(input, "model")) {
+    const model = readString(input.model);
+    if (model) next.model = model;
+    else delete next.model;
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "reasoningEffort")) {
+    const value = readOptionalEnum(
+      input.reasoningEffort,
+      normalizeCodexReasoningEffort,
+      `账号 ${id} 的 reasoningEffort`
+    );
+    if (value) next.reasoningEffort = value;
+    else delete next.reasoningEffort;
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "fast")) {
+    if (input.fast === null || input.fast === undefined) delete next.fast;
+    else if (typeof input.fast === "boolean") next.fast = input.fast;
+    else throw new Error(`账号 ${id} 的 fast 必须是布尔值或 null`);
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "verbosity")) {
+    const value = readOptionalEnum(
+      input.verbosity,
+      normalizeCodexVerbosity,
+      `账号 ${id} 的 verbosity`
+    );
+    if (value) next.verbosity = value;
+    else delete next.verbosity;
+  }
   return next;
 }
 
@@ -123,6 +207,11 @@ function toEditorAccount(account: RawAccount): FeishuAccountEditorState {
     sendProgressReplies: account.sendProgressReplies === true,
   };
   copyOptionalString(account, state, "model");
+  const reasoningEffort = normalizeCodexReasoningEffort(account.reasoningEffort);
+  if (reasoningEffort) state.reasoningEffort = reasoningEffort;
+  if (typeof account.fast === "boolean") state.fast = account.fast;
+  const verbosity = normalizeCodexVerbosity(account.verbosity);
+  if (verbosity) state.verbosity = verbosity;
   copyOptionalString(account, state, "cwd");
   copyOptionalString(account, state, "historyBaseDir");
   return state;
@@ -167,6 +256,44 @@ function writeConfigAtomically(configPath: string, content: string): void {
     rmSync(temporaryPath, { force: true });
     throw error;
   }
+}
+
+function updateGlobalEnum<T extends string>(
+  document: ReturnType<typeof parseDocument>,
+  input: SaveCodexModelInput,
+  key: "reasoningEffort" | "verbosity",
+  normalize: (value: unknown) => T | undefined
+): void {
+  if (!Object.prototype.hasOwnProperty.call(input, key)) return;
+  const value = readOptionalEnum(input[key], normalize, key);
+  if (value) document.setIn(["codex", key], value);
+  else document.deleteIn(["codex", key]);
+}
+
+function updateGlobalFast(
+  document: ReturnType<typeof parseDocument>,
+  input: SaveCodexModelInput
+): void {
+  if (!Object.prototype.hasOwnProperty.call(input, "fast")) return;
+  if (input.fast === null || input.fast === undefined) {
+    document.deleteIn(["codex", "fast"]);
+    return;
+  }
+  if (typeof input.fast !== "boolean") throw new Error("fast 必须是布尔值或 null");
+  document.setIn(["codex", "fast"], input.fast);
+}
+
+function readOptionalEnum<T extends string>(
+  value: unknown,
+  normalize: (value: unknown) => T | undefined,
+  label: string
+): T | undefined {
+  if (typeof value !== "string") throw new Error(`${label} 必须是字符串`);
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const normalized = normalize(trimmed);
+  if (!normalized) throw new Error(`${label} 无效：${trimmed}`);
+  return normalized;
 }
 
 function readDomain(value: unknown, id: string): "feishu" | "lark" {

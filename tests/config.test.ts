@@ -39,6 +39,9 @@ describe("gateway config", () => {
         },
         codex: {
           model: "gpt-5",
+          reasoningEffort: "medium",
+          fast: true,
+          verbosity: "high",
           sandbox: "workspace-write",
         },
         channels: {
@@ -56,6 +59,9 @@ describe("gateway config", () => {
                 appSecret: "secret_b",
                 cwd: "/tmp/team",
                 model: "gpt-5-codex",
+                reasoningEffort: "low",
+                fast: false,
+                verbosity: "low",
               },
             ],
           },
@@ -75,6 +81,9 @@ describe("gateway config", () => {
       enabled: true,
       cwd: "/Users/tester/.codex-gateway/workspace/personal",
       model: "gpt-5",
+      reasoningEffort: "medium",
+      fast: true,
+      verbosity: "high",
       domain: "feishu",
       history: { maxMessages: 50, maxSessions: 100 },
       summary: { maxMessages: 50, concurrency: 5 },
@@ -84,7 +93,39 @@ describe("gateway config", () => {
       id: "team",
       cwd: "/tmp/team",
       model: "gpt-5-codex",
+      reasoningEffort: "low",
+      fast: false,
+      verbosity: "low",
     });
+  });
+
+  test("ignores invalid Codex runtime tuning values", () => {
+    const config = loadGatewayConfigFromObject(
+      {
+        codex: { reasoningEffort: "extreme", fast: "yes", verbosity: "verbose" },
+        channels: {
+          feishu: {
+            accounts: [
+              {
+                id: "invalid",
+                enabled: true,
+                reasoningEffort: "extreme",
+                fast: "no",
+                verbosity: "verbose",
+              },
+            ],
+          },
+        },
+      },
+      { homeDir: "/Users/tester", env: {} }
+    );
+
+    expect(config.codex.reasoningEffort).toBeUndefined();
+    expect(config.codex.fast).toBeUndefined();
+    expect(config.codex.verbosity).toBeUndefined();
+    expect(config.channels.feishu.accounts[0].reasoningEffort).toBeUndefined();
+    expect(config.channels.feishu.accounts[0].fast).toBeUndefined();
+    expect(config.channels.feishu.accounts[0].verbosity).toBeUndefined();
   });
 
   test("loads Feishu history, summary and dedupe limits", () => {

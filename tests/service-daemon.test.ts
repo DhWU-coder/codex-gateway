@@ -36,6 +36,7 @@ describe("服务 Daemon 配置热更新", () => {
     let managerStopped = false;
     let webOptions: WebServerOptions | undefined;
     let restartOptions: SpawnRestartOptions | undefined;
+    let modelCatalogCommand = "";
     const reloads: string[] = [];
     const manager = {
       async start() {},
@@ -66,6 +67,26 @@ describe("服务 Daemon 配置热更新", () => {
         restartOptions = options;
         return 4321;
       },
+      createModelCatalog: (options) => {
+        modelCatalogCommand = options.command ?? "";
+        return {
+          async list() {
+            return [
+              {
+                id: "gpt-test",
+                model: "gpt-test",
+                displayName: "GPT Test",
+                description: "Test model",
+                supportedReasoningEfforts: [],
+                additionalSpeedTiers: [],
+                serviceTiers: [],
+                supportsFast: false,
+                isDefault: true,
+              },
+            ];
+          },
+        };
+      },
       createConfigWatcher: (options) => {
         watcherOptions = options;
         return {
@@ -84,6 +105,10 @@ describe("服务 Daemon 配置热更新", () => {
         logPath: expect.stringContaining("service.log"),
       });
       expect(webOptions?.configReloadStateProvider?.()).toEqual({ status: "idle" });
+      expect(modelCatalogCommand).toBe("codex");
+      expect(await webOptions?.modelCatalogProvider?.()).toEqual([
+        expect.objectContaining({ model: "gpt-test", isDefault: true }),
+      ]);
       await webOptions?.restartService?.();
       expect(restartOptions).toMatchObject({
         cwd: directory,

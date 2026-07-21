@@ -156,6 +156,56 @@ describe("Codex session router", () => {
     ]);
   });
 
+  test("applies updated runtime defaults only to newly created sessions", async () => {
+    const settings: Array<{
+      model?: string;
+      reasoningEffort?: string;
+      fast?: boolean;
+      verbosity?: string;
+    }> = [];
+    const router = new CodexSessionRouter({
+      cwd: "/tmp/work",
+      model: "gpt-old",
+      reasoningEffort: "high",
+      fast: true,
+      verbosity: "low",
+      historyBaseDir: mkdtempSync(join(tmpdir(), "codex-gateway-router-model-update-")),
+      createArchiveId: createIdFactory("archive-old", "archive-new"),
+      runner: async (input) => {
+        settings.push({
+          model: input.model,
+          reasoningEffort: input.reasoningEffort,
+          fast: input.fast,
+          verbosity: input.verbosity,
+        });
+        return { text: "完成", sessionId: input.sessionId ?? `codex-${settings.length}` };
+      },
+    });
+
+    await router.send("dm:ou_sender", "第一条");
+    router.updateDefaults({
+      model: "gpt-new",
+      reasoningEffort: "low",
+      fast: false,
+      verbosity: "high",
+    });
+    await router.send("dm:ou_sender", "继续旧会话");
+    router.resetSession("dm:ou_sender");
+    await router.send("dm:ou_sender", "开始新会话");
+
+    expect(settings).toEqual([
+      { model: "gpt-old", reasoningEffort: "high", fast: true, verbosity: "low" },
+      { model: "gpt-old", reasoningEffort: "high", fast: true, verbosity: "low" },
+      { model: "gpt-new", reasoningEffort: "low", fast: false, verbosity: "high" },
+    ]);
+    expect(router.getStatus("dm:ou_sender")).toMatchObject({
+      model: "gpt-new",
+      reasoningEffort: "low",
+      fast: false,
+      verbosity: "high",
+    });
+  });
+
   test("resumes a selected archived Codex session", async () => {
     const calls: Array<{ prompt: string; sessionId?: string; resume: boolean }> = [];
     const router = new CodexSessionRouter({

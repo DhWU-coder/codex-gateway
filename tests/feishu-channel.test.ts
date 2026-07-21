@@ -536,8 +536,15 @@ describe("Feishu channel", () => {
   });
 
   test("updates progress replies at runtime and exposes connection checks", async () => {
+    const defaults: unknown[] = [];
     const channel = new FeishuChannel({
-      account: account("/tmp/work"),
+      account: {
+        ...account("/tmp/work"),
+        model: "gpt-old",
+        reasoningEffort: "high",
+        fast: true,
+        verbosity: "low",
+      },
       messageClient: {
         async replyText() {},
         async sendText() {},
@@ -555,12 +562,30 @@ describe("Feishu channel", () => {
         stopSession: () => true,
         stopAll() {},
         getStatus: () => ({ running: false }),
+        updateDefaults(settings) {
+          defaults.push(settings);
+        },
       },
     });
 
-    channel.updateConfig({ sendProgressReplies: true });
+    channel.updateConfig({
+      sendProgressReplies: true,
+      model: "gpt-new",
+      reasoningEffort: "low",
+      fast: false,
+      verbosity: "high",
+    });
 
-    expect(channel.getStatus()).toMatchObject({ sendProgressReplies: true });
+    expect(channel.getStatus()).toMatchObject({
+      sendProgressReplies: true,
+      model: "gpt-new",
+      reasoningEffort: "low",
+      fast: false,
+      verbosity: "high",
+    });
+    expect(defaults).toEqual([
+      { model: "gpt-new", reasoningEffort: "low", fast: false, verbosity: "high" },
+    ]);
     expect(await channel.testConnection()).toMatchObject({ ok: true, latencyMs: 12 });
   });
 });

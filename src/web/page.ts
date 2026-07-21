@@ -147,6 +147,23 @@ export function renderAdminPage(): string {
     .definition-list dt, .definition-list dd { margin: 0; padding: 9px 0; border-bottom: 1px solid var(--line); }
     .definition-list dt { color: var(--muted); }
     .definition-list dd { overflow-wrap: anywhere; }
+    .definition-list dd .model-combo { max-width: 520px; }
+    .definition-control { max-width: 520px; display: grid; gap: 5px; }
+    .runtime-fields { display: contents; }
+    .field-note { min-height: 17px; color: var(--muted); font-size: 11px; }
+    .field-note.warning { color: var(--warning); }
+    .model-combo { position: relative; min-width: 0; color: var(--text); }
+    .model-combo input { padding-right: 42px; }
+    .model-combo-toggle { position: absolute; top: 1px; right: 1px; width: 38px; height: 36px; min-height: 36px; padding: 0; border: 0; border-left: 1px solid var(--line); border-radius: 0 5px 5px 0; }
+    .model-combo-toggle::after { width: 8px; height: 8px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; content: ""; transform: translateY(-2px) rotate(45deg); }
+    .model-combo.open .model-combo-toggle::after { transform: translateY(2px) rotate(225deg); }
+    .model-combo-menu { position: absolute; z-index: 60; top: calc(100% + 4px); left: 0; right: 0; display: none; max-height: 300px; overflow: auto; padding: 5px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); box-shadow: var(--shadow); }
+    .model-combo.open .model-combo-menu { display: grid; gap: 3px; }
+    .model-combo-option { width: 100%; height: auto; min-height: 44px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; justify-items: start; padding: 7px 8px; border-color: transparent; text-align: left; }
+    .model-combo-option.active { border-color: var(--accent); background: var(--accent-soft); }
+    .model-combo-option strong, .model-combo-option code, .model-combo-option .source { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .model-combo-option code, .model-combo-option .source { grid-column: 1 / -1; }
+    .model-combo-empty { padding: 10px; color: var(--muted); font-size: 12px; }
     .channels-grid { display: grid; grid-template-columns: minmax(270px, 360px) minmax(0, 1fr); gap: 16px; align-items: start; }
     .channel-card { width: 100%; height: auto; display: grid; gap: 8px; padding: 12px; text-align: left; }
     .channel-card.active { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
@@ -307,9 +324,9 @@ export function renderAdminPage(): string {
     <section class="panel" id="panel-config">
       <div class="config-grid">
         <section class="surface"><div class="surface-head"><h2>服务配置</h2></div><div class="surface-body"><dl class="definition-list" id="serviceConfig"></dl></div></section>
-        <section class="surface"><div class="surface-head"><h2>Codex 配置</h2></div><div class="surface-body"><dl class="definition-list" id="codexConfig"></dl></div></section>
+        <section class="surface"><div class="surface-head"><h2>Codex 配置</h2><div class="section-actions"><button id="editCodexModel" type="button">编辑配置</button><button id="cancelCodexModel" type="button" hidden>取消</button><button id="saveCodexModel" class="primary" type="button" hidden>保存</button></div></div><div class="surface-body"><dl class="definition-list" id="codexConfig"></dl></div></section>
       </div>
-      <section class="surface"><div class="surface-head"><div><h2>飞书频道</h2><div class="source">非热更新字段在频道页保持只读</div></div><button id="openChannels" type="button">打开频道管理</button></div><div class="surface-body" id="configChannelSummary"></div></section>
+      <section class="surface"><div class="surface-head"><div><h2>飞书频道</h2><div class="source">账号运行设置可配置，工作目录与历史目录保持只读</div></div><button id="openChannels" type="button">打开频道管理</button></div><div class="surface-body" id="configChannelSummary"></div></section>
     </section>
 
     <section class="panel" id="panel-channels">
@@ -375,6 +392,13 @@ export function renderAdminPage(): string {
       overview: null,
       overviewRequest: 0,
       publicConfig: null,
+      editingCodexModel: false,
+      codexModelDraft: "",
+      codexReasoningEffortDraft: "",
+      codexFastDraft: null,
+      codexVerbosityDraft: "",
+      modelOptions: [],
+      modelCatalogError: "",
       accounts: { accounts: [] },
       editingAccounts: new Set(),
       newAccounts: new Set(),
@@ -543,6 +567,18 @@ export function renderAdminPage(): string {
       view.publicConfig = await api("/api/config");
       renderPublicConfig();
     }
+    async function loadModelCatalog() {
+      try {
+        const result = await api("/api/models");
+        view.modelOptions = result.models || [];
+        view.modelCatalogError = "";
+      } catch (error) {
+        view.modelOptions = [];
+        view.modelCatalogError = error instanceof Error ? error.message : String(error);
+      }
+      if (view.publicConfig && !view.editingCodexModel) renderPublicConfig();
+      if (!view.editingAccounts.size) renderAccounts();
+    }
     function renderPublicConfig() {
       if (!view.publicConfig) return;
       renderDefinitions(byId("serviceConfig"), [
@@ -551,9 +587,7 @@ export function renderAdminPage(): string {
         ["工作目录", view.publicConfig.service.cwd]
       ]);
       const codex = view.publicConfig.codex || {};
-      renderDefinitions(byId("codexConfig"), [
-        ["命令", codex.command], ["模型", codex.model || "默认"], ["Sandbox", codex.sandbox || "默认"], ["Profile", codex.profile || "-"], ["Search", codex.search ? "开启" : "关闭"], ["跳过 Git 检查", codex.skipGitRepoCheck ? "是" : "否"], ["附加参数", (codex.extraArgs || []).join(" ") || "-"]
-      ]);
+      renderCodexConfig(codex);
       const summary = byId("configChannelSummary");
       summary.replaceChildren();
       const feishu = view.publicConfig.channels.feishu;
@@ -564,8 +598,105 @@ export function renderAdminPage(): string {
     function renderDefinitions(target, entries) {
       target.replaceChildren();
       entries.forEach(([label, value]) => {
-        target.append(make("dt", "", label), make("dd", "", value === undefined || value === null || value === "" ? "-" : value));
+        appendDefinition(target, label, value);
       });
+    }
+    function appendDefinition(target, label, value) {
+      target.append(make("dt", "", label), make("dd", "", value === undefined || value === null || value === "" ? "-" : value));
+    }
+    function renderCodexConfig(codex) {
+      const target = byId("codexConfig");
+      target.replaceChildren();
+      appendDefinition(target, "命令", codex.command);
+      const modelLabel = make("dt", "", "模型");
+      const modelValue = make("dd");
+      if (view.editingCodexModel) {
+        modelValue.append(createModelCombo(view.codexModelDraft, {
+          id: "codexModelInput",
+          placeholder: "使用 Codex CLI 默认模型",
+          onChange: (model) => {
+            view.codexModelDraft = model;
+            syncRuntimeTuningControls(target, model);
+          }
+        }));
+      } else {
+        modelValue.textContent = codex.model || defaultModelName() || "Codex CLI 默认";
+      }
+      target.append(modelLabel, modelValue);
+      const tuning = view.editingCodexModel ? {
+        reasoningEffort: view.codexReasoningEffortDraft,
+        fast: view.codexFastDraft,
+        verbosity: view.codexVerbosityDraft
+      } : {
+        reasoningEffort: codex.reasoningEffort || "",
+        fast: typeof codex.fast === "boolean" ? codex.fast : null,
+        verbosity: codex.verbosity || ""
+      };
+      target.append(createRuntimeTuningFields(view.editingCodexModel ? view.codexModelDraft : codex.model, tuning, {
+        scope: "global",
+        editing: view.editingCodexModel,
+        effective: tuning
+      }));
+      [
+        ["Sandbox", codex.sandbox || "默认"],
+        ["Profile", codex.profile || "-"],
+        ["Search", codex.search ? "开启" : "关闭"],
+        ["跳过 Git 检查", codex.skipGitRepoCheck ? "是" : "否"],
+        ["附加参数", (codex.extraArgs || []).join(" ") || "-"]
+      ].forEach(([label, value]) => appendDefinition(target, label, value));
+      byId("editCodexModel").hidden = view.editingCodexModel;
+      byId("cancelCodexModel").hidden = !view.editingCodexModel;
+      byId("saveCodexModel").hidden = !view.editingCodexModel;
+    }
+    function defaultModelName() {
+      const item = view.modelOptions.find((model) => model.isDefault);
+      return item ? item.model : "";
+    }
+    function modelCatalogItem(model) {
+      const modelId = String(model || defaultModelName()).trim();
+      return view.modelOptions.find((item) => item.model === modelId) || null;
+    }
+    async function editCodexModel() {
+      const state = await api("/api/codex-config");
+      view.codexModelDraft = state.model || "";
+      view.codexReasoningEffortDraft = state.reasoningEffort || "";
+      view.codexFastDraft = typeof state.fast === "boolean" ? state.fast : null;
+      view.codexVerbosityDraft = state.verbosity || "";
+      view.editingCodexModel = true;
+      renderPublicConfig();
+      byId("codexModelInput")?.focus();
+    }
+    function cancelCodexModel() {
+      view.editingCodexModel = false;
+      view.codexModelDraft = "";
+      view.codexReasoningEffortDraft = "";
+      view.codexFastDraft = null;
+      view.codexVerbosityDraft = "";
+      renderPublicConfig();
+    }
+    async function saveCodexModel() {
+      const modelInput = byId("codexModelInput");
+      const reasoningEffortInput = byId("codexReasoningEffortInput");
+      const fastInput = byId("codexFastInput");
+      const verbosityInput = byId("codexVerbosityInput");
+      const state = await api("/api/codex-config", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: modelInput ? modelInput.value : "",
+          reasoningEffort: reasoningEffortInput ? reasoningEffortInput.value : "",
+          fast: fastInput ? parseFastValue(fastInput.value) : null,
+          verbosity: verbosityInput ? verbosityInput.value : ""
+        })
+      });
+      view.editingCodexModel = false;
+      view.codexModelDraft = "";
+      view.codexReasoningEffortDraft = "";
+      view.codexFastDraft = null;
+      view.codexVerbosityDraft = "";
+      await loadPublicConfig();
+      setStatus(state.model ? "全局 Codex 配置已保存，新会话将使用 " + state.model : "全局 Codex 配置已保存，模型沿用 CLI 默认值");
+      setTimeout(() => loadOverview().catch(showError), 700);
     }
     async function loadAccounts() {
       view.accounts = await api("/api/feishu-config");
@@ -598,7 +729,9 @@ export function renderAdminPage(): string {
       card.dataset.accountIndex = String(index);
       const head = make("div", "account-head");
       const title = make("div", "account-title");
-      title.append(make("strong", "", account.id || "default"), make("span", "source", (account.enabled === false ? "disabled" : "enabled") + " · " + (account.model || "默认模型") + " · " + (account.cwd || "-")));
+      const effectiveModel = account.model || (channel && channel.model) || (view.publicConfig && view.publicConfig.codex && view.publicConfig.codex.model) || defaultModelName() || "默认模型";
+      const modelText = account.model ? effectiveModel : effectiveModel + "（继承）";
+      title.append(make("strong", "", account.id || "default"), make("span", "source", (account.enabled === false ? "disabled" : "enabled") + " · " + modelText + " · " + (account.cwd || "-")));
       const testState = view.connectionTests.get(channelIdForAccount(account.id));
       const connection = make("span", "connection-result" + (testState && testState.result ? (testState.result.ok ? " ok" : " error") : ""), connectionText(testState));
       title.append(connection);
@@ -610,7 +743,33 @@ export function renderAdminPage(): string {
       }
       head.append(title, actions);
       const fields = make("div", "account-fields");
-      fields.append(createField("ID", "id", account.id || "default", { disabled: !editing }), createField("App ID", "appId", account.appId || "", { disabled: !editing }), createSecretField(account, editing), createField("机器人 open_id", "botOpenId", account.botOpenId || "", { disabled: !editing }), createDomainField(account.domain || "feishu", !editing), createField("模型", "model", account.model || "", { readonly: true }), createField("工作目录", "cwd", account.cwd || "", { readonly: true }), createField("历史目录", "historyBaseDir", account.historyBaseDir || "", { readonly: true }));
+      const globalCodex = view.publicConfig && view.publicConfig.codex ? view.publicConfig.codex : {};
+      const inheritedModel = (channel && channel.model) || globalCodex.model || defaultModelName() || "";
+      const runtimeModel = account.model || inheritedModel;
+      const effectiveTuning = {
+        reasoningEffort: account.reasoningEffort || (channel && channel.reasoningEffort) || globalCodex.reasoningEffort || "",
+        fast: typeof account.fast === "boolean" ? account.fast : channel && typeof channel.fast === "boolean" ? channel.fast : typeof globalCodex.fast === "boolean" ? globalCodex.fast : null,
+        verbosity: account.verbosity || (channel && channel.verbosity) || globalCodex.verbosity || ""
+      };
+      fields.append(
+        createField("ID", "id", account.id || "default", { disabled: !editing }),
+        createField("App ID", "appId", account.appId || "", { disabled: !editing }),
+        createSecretField(account, editing),
+        createField("机器人 open_id", "botOpenId", account.botOpenId || "", { disabled: !editing }),
+        createDomainField(account.domain || "feishu", !editing),
+        createModelField("模型", "model", account.model || "", editing, (model) => syncRuntimeTuningControls(card, model || inheritedModel)),
+        createRuntimeTuningFields(runtimeModel, {
+          reasoningEffort: account.reasoningEffort || "",
+          fast: typeof account.fast === "boolean" ? account.fast : null,
+          verbosity: account.verbosity || ""
+        }, {
+          scope: "account",
+          editing,
+          effective: effectiveTuning
+        }),
+        createField("工作目录", "cwd", account.cwd || "", { readonly: true }),
+        createField("历史目录", "historyBaseDir", account.historyBaseDir || "", { readonly: true })
+      );
       const original = document.createElement("input");
       original.type = "hidden";
       original.dataset.field = "originalId";
@@ -642,6 +801,249 @@ export function renderAdminPage(): string {
       input.readOnly = Boolean(options && options.readonly);
       label.append(input);
       return label;
+    }
+    const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
+    const VERBOSITIES = ["low", "medium", "high"];
+    const RUNTIME_TUNING_SETTINGS = [
+      { key: "reasoningEffort", label: "Effort" },
+      { key: "fast", label: "Fast" },
+      { key: "verbosity", label: "Verbosity" }
+    ];
+    function createRuntimeTuningFields(model, values, options) {
+      const fragment = document.createDocumentFragment();
+      RUNTIME_TUNING_SETTINGS.forEach((setting) => {
+        if (options.scope === "global") {
+          const term = make("dt", "runtime-setting", setting.label);
+          const definition = make("dd", "runtime-setting");
+          if (options.editing) definition.append(createRuntimeSettingControl(setting.key, values[setting.key], options.scope, model));
+          else definition.append(createRuntimeSettingDisplay(setting.key, values[setting.key], options.effective[setting.key], options.scope, model));
+          fragment.append(term, definition);
+          return;
+        }
+        const field = make("label", "field runtime-setting");
+        field.append(make("span", "", setting.label));
+        if (options.editing) field.append(createRuntimeSettingControl(setting.key, values[setting.key], options.scope, model));
+        else field.append(createRuntimeSettingDisplay(setting.key, values[setting.key], options.effective[setting.key], options.scope, model));
+        fragment.append(field);
+      });
+      return fragment;
+    }
+    function createRuntimeSettingControl(key, value, scope, model) {
+      const wrapper = make("div", "definition-control");
+      const select = document.createElement("select");
+      select.dataset.runtimeKey = key;
+      select.dataset.runtimeScope = scope;
+      if (scope === "account") select.dataset.field = key;
+      if (scope === "global") {
+        const ids = { reasoningEffort: "codexReasoningEffortInput", fast: "codexFastInput", verbosity: "codexVerbosityInput" };
+        select.id = ids[key];
+      }
+      populateRuntimeSettingSelect(select, model, runtimeInputValue(key, value));
+      wrapper.append(select);
+      const note = make("span", "field-note");
+      note.dataset.runtimeNote = key;
+      wrapper.append(note);
+      updateRuntimeSettingNote(wrapper, key, model);
+      return wrapper;
+    }
+    function createRuntimeSettingDisplay(key, value, effectiveValue, scope, model) {
+      const wrapper = make("div", "definition-control");
+      const input = document.createElement("input");
+      input.type = "text";
+      input.readOnly = true;
+      input.value = formatRuntimeSetting(key, value, effectiveValue, scope, model);
+      wrapper.append(input);
+      const note = make("span", "field-note");
+      note.dataset.runtimeNote = key;
+      wrapper.append(note);
+      updateRuntimeSettingNote(wrapper, key, model);
+      return wrapper;
+    }
+    function runtimeInputValue(key, value) {
+      if (key === "fast") return typeof value === "boolean" ? String(value) : "";
+      return typeof value === "string" ? value : "";
+    }
+    function runtimeSettingOptions(key, scope, model, currentValue) {
+      const inheritedLabel = scope === "account" ? "继承全局" : "Codex CLI 默认";
+      if (key === "reasoningEffort") {
+        const item = modelCatalogItem(model);
+        const supported = item && Array.isArray(item.supportedReasoningEfforts) && item.supportedReasoningEfforts.length ? item.supportedReasoningEfforts.map((option) => option.reasoningEffort) : REASONING_EFFORTS;
+        const efforts = Array.from(new Set(supported));
+        if (currentValue && !efforts.includes(currentValue)) efforts.push(currentValue);
+        return [{ value: "", label: inheritedLabel }].concat(efforts.map((effort) => ({
+          value: effort,
+          label: item && effort === item.defaultReasoningEffort ? effort + "（模型默认）" : effort
+        })));
+      }
+      if (key === "fast") {
+        const item = modelCatalogItem(model);
+        return [
+          { value: "", label: inheritedLabel },
+          { value: "true", label: item && item.supportsFast === false ? "开启（当前模型不支持）" : "开启", disabled: Boolean(item && item.supportsFast === false) },
+          { value: "false", label: "关闭" }
+        ];
+      }
+      return [{ value: "", label: inheritedLabel }].concat(VERBOSITIES.map((verbosity) => ({ value: verbosity, label: verbosity })));
+    }
+    function populateRuntimeSettingSelect(select, model, value) {
+      const options = runtimeSettingOptions(select.dataset.runtimeKey, select.dataset.runtimeScope, model, value);
+      select.replaceChildren();
+      options.forEach((item) => {
+        const option = document.createElement("option");
+        option.value = item.value;
+        option.textContent = item.label;
+        option.disabled = Boolean(item.disabled);
+        select.append(option);
+      });
+      select.value = value;
+    }
+    function syncRuntimeTuningControls(root, model) {
+      root.querySelectorAll("select[data-runtime-key]").forEach((select) => {
+        const value = select.value;
+        populateRuntimeSettingSelect(select, model, value);
+        updateRuntimeSettingNote(select.parentElement, select.dataset.runtimeKey, model);
+      });
+    }
+    function updateRuntimeSettingNote(wrapper, key, model) {
+      const note = wrapper && wrapper.querySelector ? wrapper.querySelector('[data-runtime-note="' + key + '"]') : null;
+      if (!note) return;
+      const item = modelCatalogItem(model);
+      const unsupportedFast = key === "fast" && item && item.supportsFast === false;
+      note.textContent = unsupportedFast ? "模型不支持 Fast" : key === "reasoningEffort" && !item ? "自定义模型，Effort 兼容性未知" : "";
+      note.classList.toggle("warning", Boolean(unsupportedFast));
+    }
+    function formatRuntimeSetting(key, value, effectiveValue, scope, model) {
+      const inherited = scope === "account" && (value === "" || value === null || value === undefined);
+      let resolved = inherited ? effectiveValue : value;
+      let text;
+      if (key === "fast") text = typeof resolved === "boolean" ? (resolved ? "开启" : "关闭") : "Codex CLI 默认";
+      else if (resolved) text = String(resolved);
+      else if (key === "reasoningEffort" && modelCatalogItem(model)?.defaultReasoningEffort) text = modelCatalogItem(model).defaultReasoningEffort + "（模型默认）";
+      else text = "Codex CLI 默认";
+      return inherited ? text + "（继承）" : text;
+    }
+    function parseFastValue(value) {
+      if (value === "true") return true;
+      if (value === "false") return false;
+      return null;
+    }
+    function createModelField(labelText, key, value, editing, onChange) {
+      if (!editing) return createField(labelText, key, value, { readonly: true });
+      const label = make("label", "field");
+      label.append(make("span", "", labelText));
+      label.append(createModelCombo(value, {
+        field: key,
+        placeholder: "继承全局模型",
+        onChange
+      }));
+      return label;
+    }
+    function createModelCombo(value, options) {
+      const wrapper = make("div", "model-combo");
+      const input = document.createElement("input");
+      input.type = "text";
+      input.autocomplete = "off";
+      input.value = value || "";
+      input.placeholder = options.placeholder || "输入模型 ID";
+      if (options.id) input.id = options.id;
+      if (options.field) input.dataset.field = options.field;
+      const toggle = make("button", "model-combo-toggle");
+      toggle.type = "button";
+      toggle.setAttribute("aria-label", "显示模型选项");
+      toggle.title = "显示模型选项";
+      const menu = make("div", "model-combo-menu");
+      menu.setAttribute("role", "listbox");
+      const state = { activeIndex: 0, matches: [], showAll: false };
+      const notifyChange = () => {
+        if (typeof options.onChange === "function") options.onChange(input.value);
+      };
+      const close = () => {
+        wrapper.classList.remove("open");
+        input.setAttribute("aria-expanded", "false");
+      };
+      const render = () => {
+        const query = state.showAll ? "" : input.value.trim().toLowerCase();
+        state.matches = view.modelOptions.filter((item) => {
+          return !query || item.model.toLowerCase().includes(query) || item.displayName.toLowerCase().includes(query);
+        }).slice(0, 20);
+        menu.replaceChildren();
+        if (!state.matches.length) {
+          menu.append(make("div", "model-combo-empty", view.modelCatalogError ? "模型列表不可用，可直接输入模型 ID" : "没有匹配模型，可直接输入模型 ID"));
+          return;
+        }
+        state.activeIndex = Math.min(Math.max(state.activeIndex, 0), state.matches.length - 1);
+        state.matches.forEach((item, index) => {
+          const option = make("button", "model-combo-option" + (index === state.activeIndex ? " active" : ""));
+          option.type = "button";
+          option.setAttribute("role", "option");
+          option.setAttribute("aria-selected", index === state.activeIndex ? "true" : "false");
+          option.append(make("strong", "", item.displayName || item.model));
+          if (item.isDefault) option.append(badge("CLI 默认", "ok"));
+          if (item.displayName !== item.model) option.append(make("code", "", item.model));
+          if (item.description) option.append(make("span", "source", item.description));
+          option.addEventListener("click", () => {
+            input.value = item.model;
+            close();
+            notifyChange();
+            input.focus();
+          });
+          menu.append(option);
+        });
+      };
+      const open = (showAll = false) => {
+        closeModelCombos(wrapper);
+        wrapper.classList.add("open");
+        input.setAttribute("aria-expanded", "true");
+        state.showAll = showAll;
+        render();
+      };
+      input.setAttribute("role", "combobox");
+      input.setAttribute("aria-autocomplete", "list");
+      input.setAttribute("aria-expanded", "false");
+      input.addEventListener("focus", open);
+      input.addEventListener("click", open);
+      input.addEventListener("input", () => {
+        state.activeIndex = 0;
+        state.showAll = false;
+        notifyChange();
+        open();
+      });
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          close();
+          return;
+        }
+        if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Enter") return;
+        if (!wrapper.classList.contains("open")) open();
+        if (!state.matches.length) return;
+        event.preventDefault();
+        if (event.key === "ArrowDown") state.activeIndex = (state.activeIndex + 1) % state.matches.length;
+        if (event.key === "ArrowUp") state.activeIndex = (state.activeIndex - 1 + state.matches.length) % state.matches.length;
+        if (event.key === "Enter") {
+          input.value = state.matches[state.activeIndex].model;
+          close();
+          notifyChange();
+          return;
+        }
+        render();
+      });
+      toggle.addEventListener("click", () => {
+        if (wrapper.classList.contains("open")) {
+          close();
+          return;
+        }
+        input.focus();
+        open(true);
+      });
+      wrapper.append(input, toggle, menu);
+      return wrapper;
+    }
+    function closeModelCombos(except) {
+      document.querySelectorAll(".model-combo.open").forEach((combo) => {
+        if (combo === except) return;
+        combo.classList.remove("open");
+        combo.querySelector("input")?.setAttribute("aria-expanded", "false");
+      });
     }
     function createSecretField(account, editing) {
       const label = make("label", "field");
@@ -763,7 +1165,8 @@ export function renderAdminPage(): string {
       return Array.from(byId("feishuAccountList").querySelectorAll(".account-card")).map((card) => {
         const account = {};
         card.querySelectorAll("[data-field]").forEach((field) => {
-          account[field.dataset.field] = field.type === "checkbox" ? field.checked : field.value;
+          if (field.dataset.field === "fast") account.fast = parseFastValue(field.value);
+          else account[field.dataset.field] = field.type === "checkbox" ? field.checked : field.value;
         });
         return account;
       });
@@ -1027,8 +1430,8 @@ export function renderAdminPage(): string {
     async function refreshActiveTab() {
       await loadOverview();
       if (view.activeTab === "usage") await loadUsage();
-      if (view.activeTab === "config") await loadPublicConfig();
-      if (view.activeTab === "channels") await loadAccounts();
+      if (view.activeTab === "config") await Promise.all([loadPublicConfig(), loadModelCatalog()]);
+      if (view.activeTab === "channels") await Promise.all([loadAccounts(), loadModelCatalog()]);
       if (view.activeTab === "logs") await loadLogs(true);
     }
 
@@ -1041,7 +1444,10 @@ export function renderAdminPage(): string {
     byId("restartService").addEventListener("click", () => restartService().catch(showError));
     byId("stopService").addEventListener("click", () => stopService().catch(showError));
     byId("openChannels").addEventListener("click", () => activateTab("channels"));
-    byId("channelsRefresh").addEventListener("click", () => Promise.all([loadOverview(), loadAccounts()]).catch(showError));
+    byId("channelsRefresh").addEventListener("click", () => Promise.all([loadOverview(), loadAccounts(), loadModelCatalog()]).catch(showError));
+    byId("editCodexModel").addEventListener("click", () => editCodexModel().catch(showError));
+    byId("cancelCodexModel").addEventListener("click", cancelCodexModel);
+    byId("saveCodexModel").addEventListener("click", () => saveCodexModel().catch(showError));
     byId("editAllAccounts").addEventListener("click", editAllAccounts);
     byId("cancelAllAccounts").addEventListener("click", () => loadAccounts().catch(showError));
     byId("saveAllAccounts").addEventListener("click", () => saveAccounts().catch(showError));
@@ -1058,13 +1464,16 @@ export function renderAdminPage(): string {
     byId("logLevel").addEventListener("change", renderLogs);
     byId("logPause").addEventListener("click", toggleLogPause);
     byId("logCopy").addEventListener("click", () => copyLogs().catch(showError));
+    document.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element) || !event.target.closest(".model-combo")) closeModelCombos();
+    });
     document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !byId("sessionDrawer").hidden) closeSessionDrawer(); });
 
     try {
       const storedTab = localStorage.getItem(TAB_STORAGE_KEY);
       if (["overview", "usage", "config", "channels", "logs"].includes(storedTab)) activateTab(storedTab);
     } catch {}
-    Promise.all([loadOverview(), loadPublicConfig(), loadAccounts()]).catch(showError);
+    Promise.all([loadOverview(), loadPublicConfig(), loadAccounts(), loadModelCatalog()]).catch(showError);
     if (view.activeTab === "usage") loadUsage().catch(showError);
     if (view.activeTab === "logs") loadLogs(true).catch(showError);
     setInterval(() => {

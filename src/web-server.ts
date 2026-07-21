@@ -2,11 +2,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { ChannelManager } from "./channel-manager.js";
 import { loadGatewayConfig } from "./config.js";
+import type { CodexModelOption } from "./codex/model-catalog.js";
 import type { ServiceState } from "./service/state.js";
 import {
+  getCodexModelEditorState,
   getFeishuAccountSecret,
   getFeishuAccountsEditorState,
+  saveCodexModelEditorState,
   saveFeishuAccountsEditorState,
+  type SaveCodexModelInput,
   type SaveFeishuAccountsInput,
 } from "./web/config-editor.js";
 import { readServiceLogTail } from "./web/log-service.js";
@@ -24,6 +28,7 @@ export interface WebServerOptions {
   configPath?: string;
   logPath?: string;
   configReloadStateProvider?: () => unknown;
+  modelCatalogProvider?: () => Promise<CodexModelOption[]>;
 }
 
 export interface WebRequestOptions {
@@ -36,6 +41,7 @@ export interface WebRequestOptions {
   configPath?: string;
   logPath?: string;
   configReloadStateProvider?: () => unknown;
+  modelCatalogProvider?: () => Promise<CodexModelOption[]>;
 }
 
 export interface WebChannelManager {
@@ -102,12 +108,39 @@ export async function handleWebRequest(
       })
     );
   }
+  if (request.method === "GET" && url.pathname === "/api/models") {
+    if (!options.modelCatalogProvider) {
+      return jsonResponse({ error: "Codex 模型目录不可用。" }, 503);
+    }
+    try {
+      return jsonResponse({ models: await options.modelCatalogProvider() });
+    } catch (error) {
+      return jsonResponse({ error: formatError(error) }, 500);
+    }
+  }
   if (request.method === "GET" && url.pathname === "/api/config") {
     if (!options.configPath) return jsonResponse({ error: "配置路径不可用。" }, 503);
     try {
       return jsonResponse(getPublicConfig(options.configPath));
     } catch (error) {
       return jsonResponse({ error: formatError(error) }, 500);
+    }
+  }
+  if (request.method === "GET" && url.pathname === "/api/codex-config") {
+    if (!options.configPath) return jsonResponse({ error: "配置路径不可用。" }, 503);
+    try {
+      return jsonResponse(getCodexModelEditorState(options.configPath));
+    } catch (error) {
+      return jsonResponse({ error: formatError(error) }, 500);
+    }
+  }
+  if (request.method === "POST" && url.pathname === "/api/codex-config") {
+    if (!options.configPath) return jsonResponse({ error: "配置路径不可用。" }, 503);
+    try {
+      const body = (await readJsonObject(request)) as SaveCodexModelInput;
+      return jsonResponse(saveCodexModelEditorState(body, options.configPath));
+    } catch (error) {
+      return jsonResponse({ error: formatError(error) }, 400);
     }
   }
   if (request.method === "GET" && url.pathname === "/api/feishu-config") {

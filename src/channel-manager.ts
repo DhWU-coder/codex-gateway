@@ -1,4 +1,5 @@
 import type { FeishuAccountConfig, GatewayConfig } from "./config.js";
+import type { CodexReasoningEffort, CodexVerbosity } from "./codex/runtime-settings.js";
 import { FeishuChannel } from "./feishu/channel.js";
 import { createFeishuSdkClients } from "./feishu/client.js";
 import type { FeishuConnectionTestResult } from "./feishu/send.js";
@@ -13,7 +14,7 @@ export interface ManagedChannel {
   start(): Promise<void>;
   stop(): Promise<void>;
   getStatus(): ManagedChannelStatus;
-  updateConfig?(config: { sendProgressReplies?: boolean }): void;
+  updateConfig?(config: ManagedChannelRuntimeConfig): void;
   testConnection?(): Promise<FeishuConnectionTestResult> | FeishuConnectionTestResult;
   listArchivedSessions?(conversationKey: string): SessionSummary[];
   getArchivedSessionDetail?(
@@ -25,6 +26,14 @@ export interface ManagedChannel {
     selection?: number | string,
     refresh?: boolean
   ): Promise<SessionSummaryWithAi | null>;
+}
+
+export interface ManagedChannelRuntimeConfig {
+  sendProgressReplies?: boolean;
+  model?: string;
+  reasoningEffort?: CodexReasoningEffort;
+  fast?: boolean;
+  verbosity?: CodexVerbosity;
 }
 
 export interface ManagedChannelStatus {
@@ -88,17 +97,26 @@ export class ChannelManager {
 
   updateChannelConfig(
     id: string,
-    config: { sendProgressReplies?: boolean }
+    config: ManagedChannelRuntimeConfig
   ): boolean {
     const channel = this.findChannel(id);
     if (!channel?.updateConfig) return false;
     channel.updateConfig(config);
     const previous = this.feishuConfigs.get(id);
-    if (previous && typeof config.sendProgressReplies === "boolean") {
-      this.feishuConfigs.set(id, {
-        ...previous,
-        sendProgressReplies: config.sendProgressReplies,
-      });
+    if (previous) {
+      const next = { ...previous };
+      for (const key of [
+        "sendProgressReplies",
+        "model",
+        "reasoningEffort",
+        "fast",
+        "verbosity",
+      ] as const) {
+        if (Object.prototype.hasOwnProperty.call(config, key)) {
+          Object.assign(next, { [key]: config[key] });
+        }
+      }
+      this.feishuConfigs.set(id, next);
     }
     return true;
   }
@@ -196,16 +214,30 @@ export class ChannelManager {
       result.restarted.push(channelId);
       return;
     }
+    const runtimeConfig: ManagedChannelRuntimeConfig = {};
     if (previousConfig.sendProgressReplies !== effectiveConfig.sendProgressReplies) {
+      runtimeConfig.sendProgressReplies = effectiveConfig.sendProgressReplies;
+    }
+    if (previousConfig.model !== effectiveConfig.model) {
+      runtimeConfig.model = effectiveConfig.model;
+    }
+    if (previousConfig.reasoningEffort !== effectiveConfig.reasoningEffort) {
+      runtimeConfig.reasoningEffort = effectiveConfig.reasoningEffort;
+    }
+    if (previousConfig.fast !== effectiveConfig.fast) {
+      runtimeConfig.fast = effectiveConfig.fast;
+    }
+    if (previousConfig.verbosity !== effectiveConfig.verbosity) {
+      runtimeConfig.verbosity = effectiveConfig.verbosity;
+    }
+    if (Object.keys(runtimeConfig).length > 0) {
       const channel = this.channels.get(channelId);
       if (!channel?.updateConfig) {
         await this.replaceChannel(channelId, effectiveConfig);
         result.restarted.push(channelId);
         return;
       }
-      await channel.updateConfig({
-        sendProgressReplies: effectiveConfig.sendProgressReplies,
-      });
+      await channel.updateConfig(runtimeConfig);
       this.feishuConfigs.set(channelId, effectiveConfig);
       result.updated.push(channelId);
       return;
@@ -281,6 +313,10 @@ function preserveNonHotFields(
     appSecret: next.appSecret,
     botOpenId: next.botOpenId,
     domain: next.domain,
+    model: next.model,
+    reasoningEffort: next.reasoningEffort,
+    fast: next.fast,
+    verbosity: next.verbosity,
     sendProgressReplies: next.sendProgressReplies,
   };
 }
@@ -303,7 +339,6 @@ function collectIgnoredNonHotFields(
   next: FeishuAccountConfig
 ): string[] {
   const fields: string[] = [];
-  if (previous.model !== next.model) fields.push("model");
   if (previous.cwd !== next.cwd) fields.push("cwd");
   if (previous.historyBaseDir !== next.historyBaseDir) fields.push("historyBaseDir");
   if (JSON.stringify(previous.history) !== JSON.stringify(next.history)) fields.push("history");

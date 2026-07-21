@@ -1,6 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { parse } from "yaml";
 import {
+  type CodexReasoningEffort,
+  type CodexVerbosity,
+  normalizeCodexReasoningEffort,
+  normalizeCodexVerbosity,
+} from "./codex/runtime-settings.js";
+import {
   expandHomePath,
   resolveDefaultConfigPath,
   resolveDefaultHistoryPath,
@@ -14,6 +20,9 @@ export type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-ac
 export interface CodexConfig {
   command: string;
   model?: string;
+  reasoningEffort?: CodexReasoningEffort;
+  fast?: boolean;
+  verbosity?: CodexVerbosity;
   sandbox?: CodexSandboxMode;
   profile?: string;
   search: boolean;
@@ -30,6 +39,9 @@ export interface FeishuAccountConfig {
   botOpenId?: string;
   domain: FeishuDomain;
   model?: string;
+  reasoningEffort?: CodexReasoningEffort;
+  fast?: boolean;
+  verbosity?: CodexVerbosity;
   cwd: string;
   historyBaseDir: string;
   sendProgressReplies: boolean;
@@ -96,6 +108,9 @@ export function loadGatewayConfigFromObject(
     env,
     homeDir,
     defaultModel: codex.model,
+    defaultReasoningEffort: codex.reasoningEffort,
+    defaultFast: codex.fast,
+    defaultVerbosity: codex.verbosity,
   });
 
   return {
@@ -116,6 +131,9 @@ function loadCodexConfig(raw: Record<string, unknown>, env: NodeJS.ProcessEnv): 
   return {
     command: readString(raw.command) || env.CODEX_COMMAND || "codex",
     model: readString(raw.model) || env.CODEX_MODEL || undefined,
+    reasoningEffort: normalizeCodexReasoningEffort(raw.reasoningEffort),
+    fast: readBoolean(raw.fast),
+    verbosity: normalizeCodexVerbosity(raw.verbosity),
     sandbox: normalizeSandbox(readString(raw.sandbox)) ?? "danger-full-access",
     profile: readString(raw.profile),
     search: readBoolean(raw.search) ?? true,
@@ -131,6 +149,9 @@ function loadFeishuAccounts(input: {
   env: NodeJS.ProcessEnv;
   homeDir?: string;
   defaultModel?: string;
+  defaultReasoningEffort?: CodexReasoningEffort;
+  defaultFast?: boolean;
+  defaultVerbosity?: CodexVerbosity;
 }): FeishuAccountConfig[] {
   const accountInputs = Array.isArray(input.raw.accounts) ? input.raw.accounts : [input.raw];
   return accountInputs
@@ -139,6 +160,9 @@ function loadFeishuAccounts(input: {
         env: input.env,
         homeDir: input.homeDir,
         defaultModel: input.defaultModel,
+        defaultReasoningEffort: input.defaultReasoningEffort,
+        defaultFast: input.defaultFast,
+        defaultVerbosity: input.defaultVerbosity,
         defaultId: index === 0 ? "default" : `account-${index + 1}`,
       })
     )
@@ -151,6 +175,9 @@ function normalizeFeishuAccount(
     env: NodeJS.ProcessEnv;
     homeDir?: string;
     defaultModel?: string;
+    defaultReasoningEffort?: CodexReasoningEffort;
+    defaultFast?: boolean;
+    defaultVerbosity?: CodexVerbosity;
     defaultId: string;
   }
 ): FeishuAccountConfig {
@@ -180,6 +207,10 @@ function normalizeFeishuAccount(
       undefined,
     domain: normalizeDomain(readString(raw.domain) || input.env.FEISHU_DOMAIN),
     model: readString(raw.model) || input.defaultModel,
+    reasoningEffort:
+      normalizeCodexReasoningEffort(raw.reasoningEffort) ?? input.defaultReasoningEffort,
+    fast: readBoolean(raw.fast) ?? input.defaultFast,
+    verbosity: normalizeCodexVerbosity(raw.verbosity) ?? input.defaultVerbosity,
     cwd,
     historyBaseDir:
       expandHomePath(readString(raw.historyBaseDir), input.homeDir) ??

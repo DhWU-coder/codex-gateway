@@ -44,6 +44,29 @@ describe("Session history store", () => {
     expect(JSON.parse(readFileSync(join(conversationDir, "index.json"), "utf-8")).sessions).toHaveLength(2);
   });
 
+  test("persists runtime tuning in session metadata", () => {
+    const store = new SessionHistoryStore(dir, () => "session-tuned");
+
+    const session = store.readOrCreate("dm:ou_tuned", {
+      cwd: "/tmp/work",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      fast: false,
+      verbosity: "low",
+    });
+
+    expect(session).toMatchObject({
+      reasoningEffort: "high",
+      fast: false,
+      verbosity: "low",
+    });
+    expect(store.read("dm:ou_tuned")).toMatchObject({
+      reasoningEffort: "high",
+      fast: false,
+      verbosity: "low",
+    });
+  });
+
   test("migrates legacy single-session files into the first archive", () => {
     const conversationKey = "group:oc_legacy";
     const conversationDir = join(dir, encodeConversationKey(conversationKey));

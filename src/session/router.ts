@@ -2,6 +2,11 @@ import type { CodexRunner } from "../codex/runner.js";
 import { runCodex } from "../codex/runner.js";
 import type { CodexProgressEvent } from "../codex/json-events.js";
 import type { CodexSandboxMode } from "../config.js";
+import type {
+  CodexReasoningEffort,
+  CodexRuntimeTuning,
+  CodexVerbosity,
+} from "../codex/runtime-settings.js";
 import {
   type SessionAiSummary,
   type SessionMessage,
@@ -13,6 +18,9 @@ import {
 export interface CodexSessionRouterOptions {
   cwd: string;
   model?: string;
+  reasoningEffort?: CodexReasoningEffort;
+  fast?: boolean;
+  verbosity?: CodexVerbosity;
   historyBaseDir: string;
   runner?: CodexRunner;
   command?: string;
@@ -64,6 +72,9 @@ export interface CodexSessionStatus {
   archiveId?: string;
   cwd: string;
   model?: string;
+  reasoningEffort?: CodexReasoningEffort;
+  fast?: boolean;
+  verbosity?: CodexVerbosity;
   messageCount: number;
 }
 
@@ -109,6 +120,7 @@ export class CodexSessionRouter {
     const metadata = this.historyStore.createNewSession(conversationKey, {
       cwd: this.options.cwd,
       model: this.options.model,
+      ...this.currentTuning(),
     });
     this.sessions.set(conversationKey, this.createRoutedSession(metadata));
   }
@@ -127,6 +139,27 @@ export class CodexSessionRouter {
     }
   }
 
+  updateDefaultModel(model?: string): void {
+    this.updateDefaults({ model });
+  }
+
+  updateDefaults(
+    defaults: CodexRuntimeTuning & { model?: string }
+  ): void {
+    if (Object.prototype.hasOwnProperty.call(defaults, "model")) {
+      this.options.model = defaults.model;
+    }
+    if (Object.prototype.hasOwnProperty.call(defaults, "reasoningEffort")) {
+      this.options.reasoningEffort = defaults.reasoningEffort;
+    }
+    if (Object.prototype.hasOwnProperty.call(defaults, "fast")) {
+      this.options.fast = defaults.fast;
+    }
+    if (Object.prototype.hasOwnProperty.call(defaults, "verbosity")) {
+      this.options.verbosity = defaults.verbosity;
+    }
+  }
+
   getStatus(conversationKey: string): CodexSessionStatus {
     const current = this.getCurrentArchivedSession(conversationKey);
     return {
@@ -134,7 +167,12 @@ export class CodexSessionRouter {
       sessionId: current?.sessionId,
       archiveId: current?.archiveId,
       cwd: current?.cwd ?? this.options.cwd,
-      model: current?.model ?? this.options.model,
+      model: current ? this.sessionModel(current) : this.options.model,
+      reasoningEffort: current
+        ? this.sessionTuning(current).reasoningEffort
+        : this.options.reasoningEffort,
+      fast: current ? this.sessionTuning(current).fast : this.options.fast,
+      verbosity: current ? this.sessionTuning(current).verbosity : this.options.verbosity,
       messageCount: current?.messageCount ?? 0,
     };
   }
@@ -202,6 +240,7 @@ export class CodexSessionRouter {
     const fork = this.historyStore.forkSession(conversationKey, selected.archiveId, {
       cwd: this.options.cwd,
       model: this.options.model,
+      ...this.currentTuning(),
     });
     if (!fork) return { ok: false, message: "fork 失败，历史 session 元信息不存在。" };
     this.sessions.set(conversationKey, this.createRoutedSession(fork));
@@ -280,6 +319,7 @@ export class CodexSessionRouter {
     const metadata = this.historyStore.readOrCreate(conversationKey, {
       cwd: this.options.cwd,
       model: this.options.model,
+      ...this.currentTuning(),
     });
     const routed = this.createRoutedSession(metadata);
     this.sessions.set(conversationKey, routed);
@@ -353,12 +393,17 @@ export class CodexSessionRouter {
     imagePaths: string[],
     signal?: AbortSignal,
     onProgress?: CodexSessionProgressHandler,
-    model = this.options.model
+    model = this.sessionModel(metadata),
+    tuningSource: "session" | "current" = "session"
   ) {
+    const tuning = tuningSource === "current" ? this.currentTuning() : this.sessionTuning(metadata);
     return {
       cwd: this.options.cwd,
       prompt,
       model,
+      reasoningEffort: tuning.reasoningEffort,
+      fast: tuning.fast,
+      verbosity: tuning.verbosity,
       sessionId: resume ? metadata.sessionId : undefined,
       resume,
       imagePaths,
@@ -377,6 +422,35 @@ export class CodexSessionRouter {
 
   private isProcessing(conversationKey: string): boolean {
     return Boolean(this.sessions.get(conversationKey)?.abortController);
+  }
+
+  private currentTuning(): CodexRuntimeTuning {
+    return {
+      reasoningEffort: this.options.reasoningEffort,
+      fast: this.options.fast,
+      verbosity: this.options.verbosity,
+    };
+  }
+
+  private sessionModel(metadata: SessionMetadata): string | undefined {
+    return metadata.runtimeSettingsCaptured === true
+      ? metadata.model
+      : metadata.model ?? this.options.model;
+  }
+
+  private sessionTuning(metadata: SessionMetadata): CodexRuntimeTuning {
+    if (metadata.runtimeSettingsCaptured === true) {
+      return {
+        reasoningEffort: metadata.reasoningEffort,
+        fast: metadata.fast,
+        verbosity: metadata.verbosity,
+      };
+    }
+    return {
+      reasoningEffort: metadata.reasoningEffort ?? this.options.reasoningEffort,
+      fast: metadata.fast ?? this.options.fast,
+      verbosity: metadata.verbosity ?? this.options.verbosity,
+    };
   }
 
   private selectArchivedSession(
@@ -412,7 +486,8 @@ export class CodexSessionRouter {
         [],
         undefined,
         undefined,
-        model
+        model,
+        "current"
       )
     );
     return this.historyStore.writeSessionSummary(

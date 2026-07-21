@@ -59,6 +59,8 @@ describe("web server", () => {
     expect(html).toContain("连接测试");
     expect(html).toContain("实时过程回复");
     expect(html).toContain("/api/feishu-config");
+    expect(html).toContain("/api/codex-config");
+    expect(html).toContain("/api/models");
     expect(html).toContain("/api/usage");
     expect(html).toContain("/api/logs");
     expect(html).toContain("/api/service/restart");
@@ -68,6 +70,23 @@ describe("web server", () => {
     expect(html).toContain(':root[data-theme="dark"]');
     expect(html).toContain("codex-gateway-theme");
     expect(html).toContain("prefers-color-scheme: dark");
+    expect(html).toContain('id="editCodexModel"');
+    expect(html).toContain('id="saveCodexModel"');
+    expect(html).toContain('id="cancelCodexModel"');
+    expect(html).toContain("createModelCombo");
+    expect(html).toContain("model-combo-menu");
+    expect(html).toContain("继承全局模型");
+    expect(html).toContain("createRuntimeTuningFields");
+    expect(html).toContain("supportedReasoningEfforts");
+    expect(html).toContain("supportedReasoningEfforts.map((option) => option.reasoningEffort)");
+    expect(html).toContain("supportsFast");
+    expect(html).toContain("Codex CLI 默认");
+    expect(html).toContain("继承全局");
+    expect(html).toContain("模型不支持 Fast");
+    expect(html).toContain('"reasoningEffort"');
+    expect(html).toContain('"fast"');
+    expect(html).toContain('"verbosity"');
+    expect(html).toContain('event.key === "ArrowDown"');
     expect(html.indexOf('id="themeBootstrap"')).toBeLessThan(html.indexOf("<style>"));
     const scripts = Array.from(html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)).map(
       (match) => match[1] ?? ""
@@ -317,6 +336,112 @@ describe("web server", () => {
     expect(await secret.json()).toEqual({ appSecret: "secret-primary" });
     expect(save.status).toBe(200);
     expect(readFileSync(fixture.configPath, "utf-8")).toContain("cli_updated");
+  });
+
+  test("提供动态模型目录并保存全局 Codex 模型", async () => {
+    const fixture = createWebFixture();
+    const options = fixture.options({
+      modelCatalogProvider: async () => [
+        {
+          id: "gpt-current",
+          model: "gpt-current",
+          displayName: "GPT Current",
+          description: "Current model",
+          supportedReasoningEfforts: [
+            { reasoningEffort: "low", description: "Fast" },
+            { reasoningEffort: "high", description: "Deep" },
+          ],
+          defaultReasoningEffort: "low",
+          additionalSpeedTiers: ["fast"],
+          serviceTiers: [{ id: "priority", name: "Fast", description: "1.5x speed" }],
+          supportsFast: true,
+          isDefault: true,
+        },
+      ],
+    });
+
+    const models = await handleWebRequest(
+      new Request("http://127.0.0.1/api/models"),
+      options
+    );
+    const current = await handleWebRequest(
+      new Request("http://127.0.0.1/api/codex-config"),
+      options
+    );
+    const save = await handleWebRequest(
+      new Request("http://127.0.0.1/api/codex-config", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-current",
+          reasoningEffort: "high",
+          fast: true,
+          verbosity: "low",
+        }),
+      }),
+      options
+    );
+
+    expect(await models.json()).toEqual({
+      models: [
+        {
+          id: "gpt-current",
+          model: "gpt-current",
+          displayName: "GPT Current",
+          description: "Current model",
+          supportedReasoningEfforts: [
+            { reasoningEffort: "low", description: "Fast" },
+            { reasoningEffort: "high", description: "Deep" },
+          ],
+          defaultReasoningEffort: "low",
+          additionalSpeedTiers: ["fast"],
+          serviceTiers: [{ id: "priority", name: "Fast", description: "1.5x speed" }],
+          supportsFast: true,
+          isDefault: true,
+        },
+      ],
+    });
+    expect(await current.json()).toEqual({
+      model: "gpt-5",
+      reasoningEffort: "",
+      fast: null,
+      verbosity: "",
+    });
+    expect(await save.json()).toEqual({
+      model: "gpt-current",
+      reasoningEffort: "high",
+      fast: true,
+      verbosity: "low",
+    });
+    expect(readFileSync(fixture.configPath, "utf-8")).toContain("model: gpt-current");
+    expect(readFileSync(fixture.configPath, "utf-8")).toContain("reasoningEffort: high");
+  });
+
+  test("模型目录和全局模型配置返回明确错误", async () => {
+    const fixture = createWebFixture();
+    const options = fixture.options({
+      modelCatalogProvider: async () => {
+        throw new Error("CLI unavailable");
+      },
+    });
+
+    const models = await handleWebRequest(
+      new Request("http://127.0.0.1/api/models"),
+      options
+    );
+    const invalidSave = await handleWebRequest(
+      new Request("http://127.0.0.1/api/codex-config", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+      options
+    );
+
+    expect(models.status).toBe(500);
+    expect(await models.json()).toEqual({ error: "CLI unavailable" });
+    expect(invalidSave.status).toBe(400);
+    expect(await invalidSave.json()).toEqual({ error: "model 必须是字符串" });
   });
 
   test("日志下载和服务重启使用服务端固定依赖", async () => {

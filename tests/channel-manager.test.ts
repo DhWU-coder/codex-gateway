@@ -130,11 +130,25 @@ describe("Channel manager", () => {
     expect(manager.getStatus().channels.map((item) => item.id)).toEqual(["feishu:new"]);
   });
 
-  test("过程回复原地更新，凭据变化只重建对应频道", async () => {
+  test("过程回复和运行参数原地更新，凭据变化只重建对应频道", async () => {
     const created: FeishuAccountConfig[] = [];
-    const updates: Array<{ id: string; sendProgressReplies?: boolean }> = [];
+    const updates: Array<{
+      id: string;
+      sendProgressReplies?: boolean;
+      model?: string;
+      reasoningEffort?: string;
+      fast?: boolean;
+      verbosity?: string;
+    }> = [];
     const events: string[] = [];
-    const initial = { ...account("primary"), model: "gpt-5", cwd: "/workspace/old" };
+    const initial = {
+      ...account("primary"),
+      model: "gpt-5",
+      reasoningEffort: "high" as const,
+      fast: true,
+      verbosity: "low" as const,
+      cwd: "/workspace/old",
+    };
     const manager = new ChannelManager({
       config: gatewayConfig([initial]),
       createFeishuChannel: (item) => {
@@ -158,7 +172,16 @@ describe("Channel manager", () => {
     await manager.start();
 
     const runtimeResult = await manager.reloadConfig(
-      gatewayConfig([{ ...initial, sendProgressReplies: true }])
+      gatewayConfig([
+        {
+          ...initial,
+          sendProgressReplies: true,
+          model: "gpt-5-new",
+          reasoningEffort: "low",
+          fast: false,
+          verbosity: "high",
+        },
+      ])
     );
     const restartResult = await manager.reloadConfig(
       gatewayConfig([
@@ -167,22 +190,34 @@ describe("Channel manager", () => {
           appSecret: "secret-new",
           sendProgressReplies: true,
           model: "gpt-5-new",
+          reasoningEffort: "low",
+          fast: false,
+          verbosity: "high",
           cwd: "/workspace/new",
         },
       ])
     );
 
     expect(runtimeResult.updated).toEqual(["feishu:primary"]);
-    expect(updates).toEqual([{ id: "primary", sendProgressReplies: true }]);
-    expect(restartResult.restarted).toEqual(["feishu:primary"]);
-    expect(restartResult.ignoredNonHotFields).toEqual([
-      "feishu:primary.model",
-      "feishu:primary.cwd",
+    expect(updates).toEqual([
+      {
+        id: "primary",
+        sendProgressReplies: true,
+        model: "gpt-5-new",
+        reasoningEffort: "low",
+        fast: false,
+        verbosity: "high",
+      },
     ]);
+    expect(restartResult.restarted).toEqual(["feishu:primary"]);
+    expect(restartResult.ignoredNonHotFields).toEqual(["feishu:primary.cwd"]);
     expect(created).toHaveLength(2);
     expect(created[1]).toMatchObject({
       appSecret: "secret-new",
-      model: "gpt-5",
+      model: "gpt-5-new",
+      reasoningEffort: "low",
+      fast: false,
+      verbosity: "high",
       cwd: "/workspace/old",
       sendProgressReplies: true,
     });

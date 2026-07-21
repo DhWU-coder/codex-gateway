@@ -1,6 +1,11 @@
 import { mkdirSync, watch } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { ChannelManager, type ChannelReloadResult } from "../channel-manager.js";
+import {
+  createCodexModelCatalog,
+  type CreateCodexModelCatalogOptions,
+  type CodexModelCatalog,
+} from "../codex/model-catalog.js";
 import { loadGatewayConfig, type GatewayConfig } from "../config.js";
 import { startWebServer } from "../web-server.js";
 import { getServiceLogPath } from "./paths.js";
@@ -21,6 +26,7 @@ export interface StartServiceDaemonOptions {
   startWebServer?: typeof startWebServer;
   createConfigWatcher?: (options: ServiceConfigWatcherOptions) => ServiceConfigWatcher;
   spawnServiceRestart?: (options: SpawnRestartOptions) => number;
+  createModelCatalog?: (options: CreateCodexModelCatalogOptions) => CodexModelCatalog;
 }
 
 export interface ServiceDaemonController {
@@ -64,6 +70,9 @@ export async function startServiceDaemon(
   mkdirSync(cwd, { recursive: true, mode: 0o700 });
   const channelManager =
     options.createChannelManager?.(config) ?? new ChannelManager({ config, projectRoot });
+  const modelCatalog = (options.createModelCatalog ?? createCodexModelCatalog)({
+    command: config.codex.command,
+  });
   await channelManager.start();
 
   let configReloadState: ConfigReloadState = { status: "idle" };
@@ -125,6 +134,7 @@ export async function startServiceDaemon(
     configPath,
     logPath,
     configReloadStateProvider: () => configReloadState,
+    modelCatalogProvider: () => modelCatalog.list(),
   });
   const host = "127.0.0.1";
   const boundPort = webServer.port ?? options.port;

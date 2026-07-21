@@ -1,6 +1,11 @@
 import { mkdirSync } from "node:fs";
 import { basename } from "node:path";
 import type { CodexProgressEvent } from "../codex/json-events.js";
+import type {
+  CodexReasoningEffort,
+  CodexRuntimeTuning,
+  CodexVerbosity,
+} from "../codex/runtime-settings.js";
 import type { CodexConfig, FeishuAccountConfig } from "../config.js";
 import type { SessionAiSummary, SessionSummary } from "../session/history.js";
 import {
@@ -66,12 +71,17 @@ export interface FeishuRouterLike {
   resetSession(conversationKey: string): void;
   stopSession(conversationKey: string): boolean;
   stopAll(): void;
+  updateDefaultModel?(model?: string): void;
+  updateDefaults?(defaults: CodexRuntimeTuning & { model?: string }): void;
   getStatus(conversationKey: string): {
     running: boolean;
     sessionId?: string;
     archiveId?: string;
     cwd?: string;
     model?: string;
+    reasoningEffort?: CodexReasoningEffort;
+    fast?: boolean;
+    verbosity?: CodexVerbosity;
     messageCount?: number;
   };
   listArchivedSessions?(conversationKey: string): SessionSummary[];
@@ -183,6 +193,9 @@ export class FeishuChannel {
       accountId: this.account.id,
       cwd: this.account.cwd,
       model: this.account.model,
+      reasoningEffort: this.account.reasoningEffort,
+      fast: this.account.fast,
+      verbosity: this.account.verbosity,
       sendProgressReplies: this.sendProgressReplies,
       activeSessions: recentSessions.filter((session) => !isFinalStage(session.stage)).length,
       recentMessages,
@@ -190,12 +203,27 @@ export class FeishuChannel {
     };
   }
 
-  updateConfig(config: { sendProgressReplies?: boolean }): void {
-    if (typeof config?.sendProgressReplies !== "boolean") return;
-    this.sendProgressReplies = config.sendProgressReplies;
-    if (!this.sendProgressReplies) {
-      for (const relay of this.outputRelays.values()) relay.dispose();
-      this.outputRelays.clear();
+  updateConfig(
+    config: CodexRuntimeTuning & { sendProgressReplies?: boolean; model?: string }
+  ): void {
+    if (typeof config?.sendProgressReplies === "boolean") {
+      this.sendProgressReplies = config.sendProgressReplies;
+      if (!this.sendProgressReplies) {
+        for (const relay of this.outputRelays.values()) relay.dispose();
+        this.outputRelays.clear();
+      }
+    }
+    const defaults: CodexRuntimeTuning & { model?: string } = {};
+    for (const key of ["model", "reasoningEffort", "fast", "verbosity"] as const) {
+      if (!Object.prototype.hasOwnProperty.call(config, key)) continue;
+      Object.assign(this.account, { [key]: config[key] });
+      Object.assign(defaults, { [key]: config[key] });
+    }
+    if (Object.keys(defaults).length > 0) {
+      if (this.router.updateDefaults) this.router.updateDefaults(defaults);
+      else if (Object.prototype.hasOwnProperty.call(defaults, "model")) {
+        this.router.updateDefaultModel?.(defaults.model);
+      }
     }
   }
 
@@ -711,6 +739,9 @@ export class FeishuChannel {
     return new CodexSessionRouter({
       cwd: this.account.cwd,
       model: this.account.model,
+      reasoningEffort: this.account.reasoningEffort,
+      fast: this.account.fast,
+      verbosity: this.account.verbosity,
       historyBaseDir: this.account.historyBaseDir,
       command: this.codex?.command,
       sandbox: this.codex?.sandbox,

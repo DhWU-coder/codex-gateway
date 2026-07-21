@@ -80,6 +80,52 @@ describe("Codex runner", () => {
     expect(command.args).not.toContain("--sandbox");
   });
 
+  test("maps runtime tuning to Codex config flags before extra arguments", () => {
+    const command = buildCodexCommand({
+      cwd: "/tmp/work",
+      prompt: "调优",
+      outputFile: "/tmp/out.txt",
+      reasoningEffort: "high",
+      fast: true,
+      verbosity: "low",
+      extraArgs: ["-c", 'model_verbosity="high"'],
+    });
+
+    expect(command.args).toEqual([
+      "exec",
+      "--json",
+      "--skip-git-repo-check",
+      "-C",
+      "/tmp/work",
+      "-c",
+      'model_reasoning_effort="high"',
+      "-c",
+      'model_verbosity="low"',
+      "--enable",
+      "fast_mode",
+      "-c",
+      'service_tier="fast"',
+      "-c",
+      'model_verbosity="high"',
+      "--output-last-message",
+      "/tmp/out.txt",
+      "-",
+    ]);
+  });
+
+  test("explicitly disables Fast mode without setting a service tier", () => {
+    const command = buildCodexCommand({
+      cwd: "/tmp/work",
+      prompt: "标准速度",
+      outputFile: "/tmp/out.txt",
+      fast: false,
+    });
+
+    expect(command.args).toContain("--disable");
+    expect(command.args).toContain("fast_mode");
+    expect(command.args).not.toContain('service_tier="fast"');
+  });
+
   test("extracts session id and assistant text from flexible JSONL events", () => {
     const parsed = parseCodexJsonEvents(
       [

@@ -8,6 +8,12 @@ service:
 codex:
   command: codex
   model: gpt-5
+  # 可选：none、minimal、low、medium、high、xhigh、max、ultra；实际支持项取决于模型
+  reasoningEffort: high
+  # true 启用 Fast，false 明确关闭；删除该字段则沿用 Codex CLI 默认值
+  fast: false
+  # 可选：low、medium、high；删除该字段则沿用 Codex CLI 默认值
+  verbosity: medium
   sandbox: danger-full-access
   skipGitRepoCheck: true
   search: true
@@ -24,6 +30,10 @@ channels:
         botOpenId: ou_xxx
         domain: feishu
         model: gpt-5
+        # 账号未配置时继承上面的全局设置
+        reasoningEffort: high
+        fast: true
+        verbosity: medium
         cwd: ~/.codex-gateway/workspace/donghao
         historyBaseDir: ~/.codex-gateway/channels/feishu/donghao/sessions
         # 是否把 Codex 的实时文本过程合并后回复到飞书；也可在 Web UI 临时切换
