@@ -1,10 +1,54 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { FeishuChannel } from "../src/feishu/channel.js";
 
 describe("Feishu channel", () => {
+  test("启动时为启用和禁用账户创建空 AGENTS.md", async () => {
+    for (const enabled of [true, false]) {
+      const root = mkdtempSync(join(tmpdir(), "codex-gateway-channel-instructions-"));
+      const instructionsPath = join(root, "channel", "AGENTS.md");
+      let clientStarts = 0;
+      const channel = new FeishuChannel({
+        account: {
+          ...account(join(root, "workspace")),
+          enabled,
+          instructionsPath,
+        },
+        eventClient: {
+          async start() {
+            clientStarts += 1;
+          },
+          async stop() {},
+        },
+      });
+
+      await channel.start();
+
+      expect(existsSync(instructionsPath)).toBe(true);
+      expect(readFileSync(instructionsPath, "utf8")).toBe("");
+      expect(clientStarts).toBe(enabled ? 1 : 0);
+      expect(channel.getStatus()).toMatchObject({ instructionsPath });
+    }
+  });
+
+  test("读取、保存和清空账户指令时始终保留 AGENTS.md", () => {
+    const root = mkdtempSync(join(tmpdir(), "codex-gateway-channel-instructions-edit-"));
+    const instructionsPath = join(root, "channel", "AGENTS.md");
+    const channel = new FeishuChannel({
+      account: { ...account(join(root, "workspace")), instructionsPath },
+    });
+
+    expect(channel.getInstructions()).toMatchObject({ content: "", configured: false });
+    expect(channel.saveInstructions("# 专属规则\n始终使用中文。\n")).toMatchObject({
+      content: "# 专属规则\n始终使用中文。\n",
+      configured: true,
+    });
+    expect(channel.saveInstructions("")).toMatchObject({ content: "", configured: false });
+    expect(existsSync(instructionsPath)).toBe(true);
+  });
+
   test("routes a direct message to Codex and replies with router output", async () => {
     const sentPrompts: string[] = [];
     const replies: string[] = [];

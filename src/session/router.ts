@@ -21,6 +21,7 @@ export interface CodexSessionRouterOptions {
   reasoningEffort?: CodexReasoningEffort;
   fast?: boolean;
   verbosity?: CodexVerbosity;
+  developerInstructionsProvider?: () => string | undefined;
   historyBaseDir: string;
   runner?: CodexRunner;
   command?: string;
@@ -404,6 +405,7 @@ export class CodexSessionRouter {
       reasoningEffort: tuning.reasoningEffort,
       fast: tuning.fast,
       verbosity: tuning.verbosity,
+      developerInstructions: this.options.developerInstructionsProvider?.(),
       sessionId: resume ? metadata.sessionId : undefined,
       resume,
       imagePaths,

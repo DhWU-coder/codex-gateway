@@ -52,6 +52,10 @@ describe("web server", () => {
     expect(html).toContain('data-tab="logs"');
     expect(html).toContain('id="feishuAccountList"');
     expect(html).toContain('id="sessionDrawer"');
+    expect(html).toContain('id="instructionsDialog"');
+    expect(html).toContain('id="instructionsPath"');
+    expect(html).toContain('id="instructionsContent"');
+    expect(html).toContain('id="saveInstructions"');
     expect(html).toContain('id="usageSummary"');
     expect(html).toContain('id="usagePending"');
     expect(html).toContain("用量将在任务完成后入账");
@@ -60,6 +64,9 @@ describe("web server", () => {
     expect(html).toContain("历史归档");
     expect(html).toContain("AI 总结");
     expect(html).toContain("连接测试");
+    expect(html).toContain('accountButton("指令", () => openInstructions(account))');
+    expect(html).toContain("async function openInstructions(account)");
+    expect(html).toContain('/instructions"');
     expect(html).toContain("实时过程回复");
     expect(html).toContain("Codex 错误");
     expect(html).toContain("Codex 警告");
@@ -194,6 +201,26 @@ describe("web server", () => {
         calls.push(["summary", id, conversationKey, selection, refresh]);
         return { archiveId: "archive-1", aiSummary: { topic: "网关开发" } };
       },
+      getChannelInstructions(id: string) {
+        calls.push(["get-instructions", id]);
+        return {
+          path: "/tmp/test/AGENTS.md",
+          content: "频道规则",
+          configured: true,
+          size: 12,
+          updatedAt: "2026-07-21T00:00:00.000Z",
+        };
+      },
+      saveChannelInstructions(id: string, content: string) {
+        calls.push(["save-instructions", id, content]);
+        return {
+          path: "/tmp/test/AGENTS.md",
+          content,
+          configured: Boolean(content),
+          size: Buffer.byteLength(content),
+          updatedAt: "2026-07-21T00:01:00.000Z",
+        };
+      },
     };
     const options = {
       stateProvider: () => null,
@@ -238,6 +265,18 @@ describe("web server", () => {
       }),
       options
     );
+    const instructionsResponse = await handleWebRequest(
+      new Request(`http://127.0.0.1${channelPath}/instructions`),
+      options
+    );
+    const saveInstructionsResponse = await handleWebRequest(
+      new Request(`http://127.0.0.1${channelPath}/instructions`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: "新频道规则" }),
+      }),
+      options
+    );
 
     expect(testResponse.status).toBe(200);
     expect(configResponse.status).toBe(200);
@@ -250,13 +289,57 @@ describe("web server", () => {
     expect(await summaryResponse.json()).toMatchObject({
       summary: { aiSummary: { topic: "网关开发" } },
     });
+    expect(await instructionsResponse.json()).toMatchObject({ content: "频道规则" });
+    expect(await saveInstructionsResponse.json()).toMatchObject({ content: "新频道规则" });
     expect(calls).toEqual([
       ["test", "feishu:test"],
       ["config", "feishu:test", { sendProgressReplies: true }],
       ["archives", "feishu:test", "dm:ou_sender"],
       ["detail", "feishu:test", "dm:ou_sender", 1],
       ["summary", "feishu:test", "dm:ou_sender", 1, true],
+      ["get-instructions", "feishu:test"],
+      ["save-instructions", "feishu:test", "新频道规则"],
     ]);
+  });
+
+  test("频道指令 API 校验内容并为不存在的频道返回 404", async () => {
+    const options = {
+      stateProvider: () => null,
+      channelStatusProvider: () => ({ channels: [] }),
+      channelManager: {
+        updateChannelConfig: () => false,
+        async testChannelConnection() { return { ok: false }; },
+        listChannelArchives: () => [],
+        getChannelArchiveDetail: () => null,
+        async summarizeChannelArchive() { return null; },
+        getChannelInstructions: () => null,
+        saveChannelInstructions: () => null,
+      },
+    };
+    const path = "http://127.0.0.1/api/channels/missing/instructions";
+
+    const invalid = await handleWebRequest(
+      new Request(path, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: 123 }),
+      }),
+      options
+    );
+    const missingGet = await handleWebRequest(new Request(path), options);
+    const missingPut = await handleWebRequest(
+      new Request(path, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: "规则" }),
+      }),
+      options
+    );
+
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toMatchObject({ error: "content 必须是字符串。" });
+    expect(missingGet.status).toBe(404);
+    expect(missingPut.status).toBe(404);
   });
 
   test("提供概览、用量和日志 API", async () => {

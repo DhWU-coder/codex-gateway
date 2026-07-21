@@ -69,7 +69,7 @@ export function renderAdminPage(): string {
     html, body { min-width: 320px; min-height: 100%; }
     body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
     body.drawer-open { overflow: hidden; }
-    button, input, select { font: inherit; letter-spacing: 0; }
+    button, input, select, textarea { font: inherit; letter-spacing: 0; }
     button, .button-link { min-height: 36px; border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; color: var(--text); padding: 7px 12px; font-weight: 620; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
     button:hover, .button-link:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
     button:disabled { cursor: not-allowed; opacity: .5; }
@@ -189,6 +189,13 @@ export function renderAdminPage(): string {
     .connection-result { min-height: 18px; color: var(--muted); font-size: 12px; white-space: pre-wrap; }
     .connection-result.ok { color: var(--accent-strong); }
     .connection-result.error { color: var(--danger); }
+    .instructions-dialog { width: min(760px, calc(100vw - 32px)); max-height: min(760px, calc(100vh - 32px)); padding: 0; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel); color: var(--text); box-shadow: 0 22px 56px rgba(0, 0, 0, .34); }
+    .instructions-dialog::backdrop { background: rgba(0, 0, 0, .58); }
+    .instructions-form { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+    .instructions-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
+    .instructions-body { min-height: 0; display: grid; gap: 12px; padding: 16px; overflow: auto; }
+    .instructions-body textarea { width: 100%; min-height: 320px; resize: vertical; border: 1px solid var(--line); border-radius: 6px; background: var(--field); color: var(--text); padding: 11px; font-family: "SFMono-Regular", Consolas, monospace; line-height: 1.55; }
+    .instructions-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--panel-2); }
     .logs-toolbar { display: grid; grid-template-columns: minmax(220px, 1fr) 150px auto auto auto; gap: 8px; align-items: center; }
     .log-output { height: min(620px, calc(100vh - 250px)); min-height: 360px; margin: 0; overflow: auto; padding: 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--code-bg); color: var(--code-text); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
     .drawer { position: fixed; inset: 0; z-index: 80; display: flex; justify-content: flex-end; }
@@ -240,6 +247,7 @@ export function renderAdminPage(): string {
       .overview-grid, .usage-main, .usage-groups, .config-grid, .channels-grid, .archive-grid { grid-template-columns: 1fr; }
       .archive-detail { padding-left: 0; border-left: 0; border-top: 1px solid var(--line); padding-top: 12px; }
       .drawer-panel { width: 100vw; }
+      .instructions-dialog { width: calc(100vw - 20px); max-height: calc(100vh - 20px); }
       .logs-toolbar { grid-template-columns: 1fr 1fr; }
     }
     @media (max-width: 560px) {
@@ -385,6 +393,17 @@ export function renderAdminPage(): string {
     </aside>
   </div>
 
+  <dialog class="instructions-dialog" id="instructionsDialog" aria-labelledby="instructionsTitle">
+    <div class="instructions-form">
+      <div class="instructions-head"><div><h2 id="instructionsTitle">频道指令</h2><div class="source" id="instructionsAccount"></div></div><button id="closeInstructions" type="button">关闭</button></div>
+      <div class="instructions-body">
+        <label class="field"><span>文件路径</span><input id="instructionsPath" type="text" readonly /></label>
+        <label class="field"><span>AGENTS.md</span><textarea id="instructionsContent" spellcheck="false"></textarea></label>
+      </div>
+      <div class="instructions-foot"><span class="source" id="instructionsMeta">空文件 · 0 字节</span><div class="section-actions"><button id="reloadInstructions" type="button">重新载入</button><button id="clearInstructions" type="button">清空</button><button id="cancelInstructions" type="button">取消</button><button class="primary" id="saveInstructions" type="button">保存</button></div></div>
+    </div>
+  </dialog>
+
   <script>
     const THEME_STORAGE_KEY = "codex-gateway-theme";
     const TAB_STORAGE_KEY = "codex-gateway-admin-tab";
@@ -409,6 +428,8 @@ export function renderAdminPage(): string {
       codexRuntimeDefaults: { fast: false, verbosity: "medium" },
       modelCatalogError: "",
       accounts: { accounts: [] },
+      instructionsChannelId: null,
+      instructionsAccountId: null,
       editingAccounts: new Set(),
       newAccounts: new Set(),
       connectionTests: new Map(),
@@ -751,7 +772,7 @@ export function renderAdminPage(): string {
       if (editing) {
         actions.append(accountButton("取消", () => cancelAccount(index)), accountButton("保存", () => saveAccounts()), accountButton("删除", () => removeAccount(index), "danger"));
       } else {
-        actions.append(accountButton("连接测试", () => testConnection(account)), accountButton("编辑", () => editAccount(index)), accountButton("删除", () => removeAccount(index), "danger"));
+        actions.append(accountButton("连接测试", () => testConnection(account)), accountButton("指令", () => openInstructions(account)), accountButton("编辑", () => editAccount(index)), accountButton("删除", () => removeAccount(index), "danger"));
       }
       head.append(title, actions);
       const fields = make("div", "account-fields");
@@ -801,6 +822,49 @@ export function renderAdminPage(): string {
       button.type = "button";
       button.addEventListener("click", () => Promise.resolve(handler()).catch(showError));
       return button;
+    }
+    async function openInstructions(account) {
+      view.instructionsChannelId = channelIdForAccount(account.id);
+      view.instructionsAccountId = account.id || "default";
+      await reloadInstructionsEditor();
+      byId("instructionsDialog").showModal();
+      byId("instructionsContent").focus();
+    }
+    async function reloadInstructionsEditor() {
+      if (!view.instructionsChannelId) return;
+      const path = "/api/channels/" + encodeURIComponent(view.instructionsChannelId) + "/instructions";
+      const state = await api(path);
+      byId("instructionsAccount").textContent = view.instructionsAccountId;
+      byId("instructionsPath").value = state.path || "";
+      byId("instructionsContent").value = state.content || "";
+      updateInstructionsMeta(state.updatedAt);
+    }
+    function updateInstructionsMeta(updatedAt) {
+      const content = byId("instructionsContent").value;
+      const bytes = new TextEncoder().encode(content).length;
+      const status = content.trim() ? bytes + " 字节" : "空文件 · 0 字节";
+      byId("instructionsMeta").textContent = updatedAt ? status + " · " + formatTime(updatedAt) : status;
+    }
+    function clearInstructionsEditor() {
+      byId("instructionsContent").value = "";
+      updateInstructionsMeta();
+      byId("instructionsContent").focus();
+    }
+    function closeInstructionsEditor() {
+      byId("instructionsDialog").close();
+    }
+    async function saveInstructionsEditor() {
+      if (!view.instructionsChannelId) return;
+      const path = "/api/channels/" + encodeURIComponent(view.instructionsChannelId) + "/instructions";
+      const state = await api(path, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: byId("instructionsContent").value })
+      });
+      byId("instructionsContent").value = state.content || "";
+      updateInstructionsMeta(state.updatedAt);
+      closeInstructionsEditor();
+      setStatus(state.configured ? "频道指令已保存，将从下一条消息开始生效" : "频道指令已清空");
     }
     function createField(labelText, key, value, options) {
       const label = make("label", "field");
@@ -1506,6 +1570,13 @@ export function renderAdminPage(): string {
     byId("cancelAllAccounts").addEventListener("click", () => loadAccounts().catch(showError));
     byId("saveAllAccounts").addEventListener("click", () => saveAccounts().catch(showError));
     byId("addAccount").addEventListener("click", addAccount);
+    byId("closeInstructions").addEventListener("click", closeInstructionsEditor);
+    byId("cancelInstructions").addEventListener("click", closeInstructionsEditor);
+    byId("reloadInstructions").addEventListener("click", () => reloadInstructionsEditor().catch(showError));
+    byId("clearInstructions").addEventListener("click", clearInstructionsEditor);
+    byId("saveInstructions").addEventListener("click", () => saveInstructionsEditor().catch(showError));
+    byId("instructionsContent").addEventListener("input", () => updateInstructionsMeta());
+    byId("instructionsDialog").addEventListener("close", () => { view.instructionsChannelId = null; view.instructionsAccountId = null; });
     byId("drawerClose").addEventListener("click", closeSessionDrawer);
     byId("drawerBackdrop").addEventListener("click", closeSessionDrawer);
     byId("summarizeArchive").addEventListener("click", () => summarizeArchive(false).catch(showError));

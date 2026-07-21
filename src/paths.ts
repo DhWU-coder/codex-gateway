@@ -45,3 +45,12 @@ export function resolveDefaultHistoryPath(input?: {
   const accountId = input?.accountId ?? "default";
   return join(resolveGatewayHome(input), "channels", "feishu", accountId, "sessions");
 }
+
+export function resolveDefaultFeishuInstructionsPath(input?: {
+  env?: NodeJS.ProcessEnv;
+  homeDir?: string;
+  accountId?: string;
+}): string {
+  const accountId = input?.accountId ?? "default";
+  return join(resolveGatewayHome(input), "channels", "feishu", accountId, "AGENTS.md");
+}

@@ -18,6 +18,7 @@ export interface CodexRunInput {
   reasoningEffort?: CodexReasoningEffort;
   fast?: boolean;
   verbosity?: CodexVerbosity;
+  developerInstructions?: string;
   sessionId?: string;
   resume?: boolean;
   imagePaths?: string[];
@@ -78,6 +79,9 @@ export function buildCodexCommand(input: CodexRunInput & { outputFile: string })
   if (input.search) args.push("-c", 'web_search="live"');
   if (input.dangerouslyBypassApprovalsAndSandbox) {
     args.push("--dangerously-bypass-approvals-and-sandbox");
+  }
+  if (input.developerInstructions?.trim()) {
+    args.push("-c", `developer_instructions=${JSON.stringify(input.developerInstructions)}`);
   }
   args.push(...(input.extraArgs ?? []));
   args.push("--output-last-message", input.outputFile);

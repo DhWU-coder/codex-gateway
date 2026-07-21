@@ -2,6 +2,7 @@ import type { FeishuAccountConfig, GatewayConfig } from "./config.js";
 import type { CodexReasoningEffort, CodexVerbosity } from "./codex/runtime-settings.js";
 import { FeishuChannel } from "./feishu/channel.js";
 import { createFeishuSdkClients } from "./feishu/client.js";
+import type { FeishuInstructionsState } from "./feishu/instructions.js";
 import type { FeishuConnectionTestResult } from "./feishu/send.js";
 import type { SessionSummary } from "./session/history.js";
 import type {
@@ -26,6 +27,8 @@ export interface ManagedChannel {
     selection?: number | string,
     refresh?: boolean
   ): Promise<SessionSummaryWithAi | null>;
+  getInstructions?(): FeishuInstructionsState;
+  saveInstructions?(content: string): FeishuInstructionsState;
 }
 
 export interface ManagedChannelRuntimeConfig {
@@ -185,6 +188,14 @@ export class ChannelManager {
         refresh
       )) ?? null
     );
+  }
+
+  getChannelInstructions(id: string): FeishuInstructionsState | null {
+    return this.findChannel(id)?.getInstructions?.() ?? null;
+  }
+
+  saveChannelInstructions(id: string, content: string): FeishuInstructionsState | null {
+    return this.findChannel(id)?.saveInstructions?.(content) ?? null;
   }
 
   private findChannel(id: string): ManagedChannel | undefined {

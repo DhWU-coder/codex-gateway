@@ -65,6 +65,8 @@ export interface WebChannelManager {
     selection?: number | string,
     refresh?: boolean
   ): Promise<unknown>;
+  getChannelInstructions?(id: string): unknown;
+  saveChannelInstructions?(id: string, content: string): unknown;
 }
 
 export function startWebServer(options: WebServerOptions): ReturnType<typeof Bun.serve> {
@@ -234,6 +236,27 @@ export async function handleWebRequest(
         });
         return jsonResponse({ ok }, ok ? 200 : 404);
       }
+      if (request.method === "GET" && channelRoute.action === "instructions") {
+        const instructions = options.channelManager.getChannelInstructions?.(
+          channelRoute.channelId
+        );
+        return instructions
+          ? jsonResponse(instructions)
+          : jsonResponse({ error: "没有找到对应的频道指令。" }, 404);
+      }
+      if (request.method === "PUT" && channelRoute.action === "instructions") {
+        const body = await readJsonObject(request);
+        if (typeof body.content !== "string") {
+          return jsonResponse({ error: "content 必须是字符串。" }, 400);
+        }
+        const instructions = options.channelManager.saveChannelInstructions?.(
+          channelRoute.channelId,
+          body.content
+        );
+        return instructions
+          ? jsonResponse(instructions)
+          : jsonResponse({ error: "没有找到对应的频道指令。" }, 404);
+      }
       if (request.method === "GET" && channelRoute.action === "archives") {
         const conversationKey = url.searchParams.get("conversationKey")?.trim();
         if (!conversationKey) return jsonResponse({ error: "缺少 conversationKey。" }, 400);
@@ -354,12 +377,22 @@ function parsePositiveNumber(value: string | null): number | undefined {
 
 function parseChannelRoute(
   pathname: string
-): { channelId: string; action: "test" | "config" | "archives" | "archives/summary" } | null {
-  const match = pathname.match(/^\/api\/channels\/([^/]+)\/(test|config|archives(?:\/summary)?)$/);
+): {
+  channelId: string;
+  action: "test" | "config" | "instructions" | "archives" | "archives/summary";
+} | null {
+  const match = pathname.match(
+    /^\/api\/channels\/([^/]+)\/(test|config|instructions|archives(?:\/summary)?)$/
+  );
   if (!match) return null;
   return {
     channelId: decodeURIComponent(match[1]),
-    action: match[2] as "test" | "config" | "archives" | "archives/summary",
+    action: match[2] as
+      | "test"
+      | "config"
+      | "instructions"
+      | "archives"
+      | "archives/summary",
   };
 }
 

@@ -48,6 +48,7 @@ describe("Channel manager", () => {
 
   test("routes runtime operations to a selected channel", async () => {
     const updates: unknown[] = [];
+    const savedInstructions: string[] = [];
     const manager = new ChannelManager({
       config: gatewayConfig([account("test")]),
       createFeishuChannel: () => ({
@@ -76,6 +77,23 @@ describe("Channel manager", () => {
         ],
         getArchivedSessionDetail: () => null,
         summarizeArchivedSession: async () => null,
+        getInstructions: () => ({
+          path: "/tmp/test/AGENTS.md",
+          content: "频道规则",
+          configured: true,
+          size: 12,
+          updatedAt: "2026-07-21T00:00:00.000Z",
+        }),
+        saveInstructions(content) {
+          savedInstructions.push(content);
+          return {
+            path: "/tmp/test/AGENTS.md",
+            content,
+            configured: Boolean(content),
+            size: Buffer.byteLength(content),
+            updatedAt: "2026-07-21T00:01:00.000Z",
+          };
+        },
       }),
     });
 
@@ -84,6 +102,11 @@ describe("Channel manager", () => {
     expect(await manager.testChannelConnection("feishu:test")).toMatchObject({ ok: true });
     expect(manager.listChannelArchives("feishu:test", "dm:ou_sender")).toHaveLength(1);
     expect(await manager.summarizeChannelArchive("feishu:test", "dm:ou_sender")).toBeNull();
+    expect(manager.getChannelInstructions("feishu:test")).toMatchObject({ content: "频道规则" });
+    expect(manager.saveChannelInstructions("feishu:test", "新规则")).toMatchObject({
+      content: "新规则",
+    });
+    expect(savedInstructions).toEqual(["新规则"]);
   });
 
   test("returns useful failures for missing or unsupported channels", async () => {
@@ -100,6 +123,8 @@ describe("Channel manager", () => {
     expect(manager.updateChannelConfig("missing", { sendProgressReplies: true })).toBe(false);
     expect(await manager.testChannelConnection("missing")).toMatchObject({ ok: false });
     expect(manager.listChannelArchives("feishu:test", "dm:ou_sender")).toEqual([]);
+    expect(manager.getChannelInstructions("missing")).toBeNull();
+    expect(manager.saveChannelInstructions("feishu:test", "规则")).toBeNull();
   });
 
   test("热更新时动态删除和新增飞书账号", async () => {

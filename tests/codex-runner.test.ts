@@ -113,6 +113,43 @@ describe("Codex runner", () => {
     ]);
   });
 
+  test("passes channel instructions as developer instructions before extra arguments", () => {
+    const command = buildCodexCommand({
+      cwd: "/tmp/work",
+      prompt: "执行任务",
+      outputFile: "/tmp/out.txt",
+      developerInstructions: "频道专属规则\n第二行",
+      extraArgs: ["-c", 'developer_instructions="临时覆盖"'],
+    });
+
+    expect(command.args).toContain("-c");
+    expect(command.args).toEqual([
+      "exec",
+      "--json",
+      "--skip-git-repo-check",
+      "-C",
+      "/tmp/work",
+      "-c",
+      'developer_instructions="频道专属规则\\n第二行"',
+      "-c",
+      'developer_instructions="临时覆盖"',
+      "--output-last-message",
+      "/tmp/out.txt",
+      "-",
+    ]);
+  });
+
+  test("does not add developer instructions for blank content", () => {
+    const command = buildCodexCommand({
+      cwd: "/tmp/work",
+      prompt: "执行任务",
+      outputFile: "/tmp/out.txt",
+      developerInstructions: "  \n ",
+    });
+
+    expect(command.args.join(" ")).not.toContain("developer_instructions");
+  });
+
   test("explicitly disables Fast mode without setting a service tier", () => {
     const command = buildCodexCommand({
       cwd: "/tmp/work",

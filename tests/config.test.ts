@@ -80,6 +80,8 @@ describe("gateway config", () => {
       id: "personal",
       enabled: true,
       cwd: "/Users/tester/.codex-gateway/workspace/personal",
+      instructionsPath:
+        "/Users/tester/.codex-gateway/channels/feishu/personal/AGENTS.md",
       model: "gpt-5",
       reasoningEffort: "medium",
       fast: true,
@@ -92,6 +94,7 @@ describe("gateway config", () => {
     expect(config.channels.feishu.accounts[1]).toMatchObject({
       id: "team",
       cwd: "/tmp/team",
+      instructionsPath: "/Users/tester/.codex-gateway/channels/feishu/team/AGENTS.md",
       model: "gpt-5-codex",
       reasoningEffort: "low",
       fast: false,

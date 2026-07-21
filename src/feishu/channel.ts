@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { CodexProgressEvent } from "../codex/json-events.js";
 import type {
   CodexReasoningEffort,
@@ -25,6 +25,13 @@ import {
   stripBotMention,
 } from "./events.js";
 import { saveFeishuFile, saveFeishuImage } from "./files.js";
+import {
+  buildFeishuDeveloperInstructions,
+  ensureFeishuInstructionsFile,
+  type FeishuInstructionsState,
+  readFeishuInstructionsFile,
+  writeFeishuInstructionsFile,
+} from "./instructions.js";
 import { FeishuMessageProgressTracker } from "./message-tracker.js";
 import { FeishuOutputRelay } from "./output-relay.js";
 import {
@@ -128,6 +135,7 @@ export class FeishuChannel {
   private readonly account: FeishuAccountConfig;
   private readonly codex?: CodexConfig;
   private readonly projectRoot?: string;
+  private readonly instructionsPath: string;
   private readonly eventClient: FeishuEventClient;
   private readonly mediaClient?: FeishuMediaClient;
   private readonly messageClient?: FeishuMessageClient;
@@ -148,6 +156,8 @@ export class FeishuChannel {
     this.account = options.account;
     this.codex = options.codex;
     this.projectRoot = options.projectRoot;
+    this.instructionsPath =
+      options.account.instructionsPath ?? join(dirname(options.account.historyBaseDir), "AGENTS.md");
     this.id = options.account.id === "default" ? "feishu" : `feishu:${options.account.id}`;
     this.eventClient = options.eventClient ?? noopEventClient();
     this.mediaClient = options.mediaClient;
@@ -167,6 +177,7 @@ export class FeishuChannel {
   }
 
   async start(): Promise<void> {
+    ensureFeishuInstructionsFile(this.instructionsPath);
     if (!this.account.enabled) {
       this.status = "not_configured";
       return;
@@ -196,11 +207,20 @@ export class FeishuChannel {
       reasoningEffort: this.account.reasoningEffort,
       fast: this.account.fast,
       verbosity: this.account.verbosity,
+      instructionsPath: this.instructionsPath,
       sendProgressReplies: this.sendProgressReplies,
       activeSessions: recentSessions.filter((session) => !isFinalStage(session.stage)).length,
       recentMessages,
       recentSessions,
     };
+  }
+
+  getInstructions(): FeishuInstructionsState {
+    return readFeishuInstructionsFile(this.instructionsPath);
+  }
+
+  saveInstructions(content: string): FeishuInstructionsState {
+    return writeFeishuInstructionsFile(this.instructionsPath, content);
   }
 
   updateConfig(
@@ -742,6 +762,10 @@ export class FeishuChannel {
       reasoningEffort: this.account.reasoningEffort,
       fast: this.account.fast,
       verbosity: this.account.verbosity,
+      developerInstructionsProvider: () =>
+        buildFeishuDeveloperInstructions(
+          readFeishuInstructionsFile(this.instructionsPath).content
+        ),
       historyBaseDir: this.account.historyBaseDir,
       command: this.codex?.command,
       sandbox: this.codex?.sandbox,

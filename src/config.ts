@@ -9,6 +9,7 @@ import {
 import {
   expandHomePath,
   resolveDefaultConfigPath,
+  resolveDefaultFeishuInstructionsPath,
   resolveDefaultHistoryPath,
   resolveDefaultWorkspacePath,
 } from "./paths.js";
@@ -44,6 +45,7 @@ export interface FeishuAccountConfig {
   verbosity?: CodexVerbosity;
   cwd: string;
   historyBaseDir: string;
+  instructionsPath?: string;
   sendProgressReplies: boolean;
   history?: FeishuHistoryConfig;
   summary?: FeishuSummaryConfig;
@@ -215,6 +217,11 @@ function normalizeFeishuAccount(
     historyBaseDir:
       expandHomePath(readString(raw.historyBaseDir), input.homeDir) ??
       resolveDefaultHistoryPath({ env: input.env, homeDir: input.homeDir, accountId: id }),
+    instructionsPath: resolveDefaultFeishuInstructionsPath({
+      env: input.env,
+      homeDir: input.homeDir,
+      accountId: id,
+    }),
     sendProgressReplies: readBoolean(raw.sendProgressReplies) ?? false,
     history: {
       maxMessages: readPositiveInteger(historyRaw.maxMessages) ?? 50,

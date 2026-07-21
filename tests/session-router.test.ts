@@ -36,6 +36,32 @@ describe("Codex session router", () => {
     ]);
   });
 
+  test("reloads channel developer instructions before every Codex run", async () => {
+    let instructions = "第一版规则";
+    const calls: Array<{ developerInstructions?: string; resume: boolean }> = [];
+    const router = new CodexSessionRouter({
+      cwd: "/tmp/work",
+      historyBaseDir: mkdtempSync(join(tmpdir(), "codex-gateway-router-instructions-")),
+      developerInstructionsProvider: () => instructions,
+      runner: async (input) => {
+        calls.push({
+          developerInstructions: input.developerInstructions,
+          resume: Boolean(input.resume),
+        });
+        return { text: "完成", sessionId: input.sessionId ?? "codex-session-1" };
+      },
+    });
+
+    await router.send("dm:ou_sender", "第一条");
+    instructions = "第二版规则";
+    await router.send("dm:ou_sender", "继续");
+
+    expect(calls).toEqual([
+      { developerInstructions: "第一版规则", resume: false },
+      { developerInstructions: "第二版规则", resume: true },
+    ]);
+  });
+
   test("falls back to recent JSONL history when Codex does not return a session id", async () => {
     const prompts: string[] = [];
     const runner: CodexRunner = async (input) => {
