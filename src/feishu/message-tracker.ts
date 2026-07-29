@@ -273,14 +273,28 @@ function trimProgressEvents(events: FeishuTrackedProgressEvent[]): FeishuTracked
 }
 
 function normalizeProgressEvent(event: CodexProgressEvent): CodexProgressEvent {
-  if (event.type === "assistant_text" || event.type === "stderr") {
+  if (
+    event.type === "assistant_text"
+    || event.type === "reasoning"
+    || event.type === "plan"
+    || event.type === "stderr"
+  ) {
     return { ...event, text: trimProgressText(event.text) };
   }
   if (event.type === "tool_result") {
     return { ...event, text: trimProgressText(event.text) };
   }
-  if (event.input === undefined) return { ...event };
-  return { ...event, input: trimProgressInput(event.input) };
+  if (event.type === "tool_start") {
+    if (event.input === undefined) return { ...event };
+    return { ...event, input: trimProgressInput(event.input) };
+  }
+  if (event.type === "file_change") {
+    return {
+      ...event,
+      changes: event.changes.map((change) => trimProgressInput(change)),
+    };
+  }
+  return { ...event };
 }
 
 function trimProgressText(text: string): string {

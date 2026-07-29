@@ -67,6 +67,72 @@ describe("Session history store", () => {
     });
   });
 
+  test("用户消息可保存稳定消息 ID 和附件元数据", () => {
+    const store = new SessionHistoryStore(dir, () => "session-attachments");
+    const session = store.readOrCreate("web:chat-1", defaults());
+
+    store.appendMessage(session, {
+      id: "message-1",
+      role: "user",
+      text: "分析附件",
+      attachments: [
+        {
+          id: "file-1",
+          name: "数据.csv",
+          kind: "upload",
+          mimeType: "text/csv",
+          size: 128,
+        },
+      ],
+    });
+
+    expect(store.readMessages(session)).toEqual([
+      expect.objectContaining({
+        id: "message-1",
+        role: "user",
+        text: "分析附件",
+        attachments: [
+          {
+            id: "file-1",
+            name: "数据.csv",
+            kind: "upload",
+            mimeType: "text/csv",
+            size: 128,
+          },
+        ],
+      }),
+    ]);
+  });
+
+  test("用户消息只保存不含绝对路径的能力引用元数据", () => {
+    const store = new SessionHistoryStore(dir, () => "session-references");
+    const session = store.readOrCreate("web:chat-references", defaults());
+
+    store.appendMessage(session, {
+      id: "message-reference",
+      role: "user",
+      text: "检查 @配置",
+      references: [
+        {
+          id: "capability-1",
+          name: "配置",
+          kind: "file",
+        },
+        {
+          id: "capability-2",
+          name: "browser",
+          kind: "skill",
+        },
+      ],
+    });
+
+    expect(store.readMessages(session)[0]?.references).toEqual([
+      { id: "capability-1", name: "配置", kind: "file" },
+      { id: "capability-2", name: "browser", kind: "skill" },
+    ]);
+    expect(JSON.stringify(store.readMessages(session))).not.toContain("/tmp/");
+  });
+
   test("migrates legacy single-session files into the first archive", () => {
     const conversationKey = "group:oc_legacy";
     const conversationDir = join(dir, encodeConversationKey(conversationKey));

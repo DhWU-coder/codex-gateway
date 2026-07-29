@@ -34,6 +34,7 @@ describe("service commands", () => {
   test("spawns a detached daemon and writes service state", async () => {
     let written: Partial<ServiceState> = {};
     let spawnedConfigPath: string | undefined;
+    let probedHost = "";
     const result = await startServiceCommand({
       configPath: "config.yaml",
       cwd: "/tmp/codex-gateway",
@@ -42,7 +43,10 @@ describe("service commands", () => {
       writeState: (next) => {
         written = next;
       },
-      findPort: async () => ({ port: 18788 }),
+      findPort: async (_port, host) => {
+        probedHost = host;
+        return { port: 18788 };
+      },
       spawnDaemon: (input) => {
         spawnedConfigPath = input.configPath;
         return 4321;
@@ -53,6 +57,29 @@ describe("service commands", () => {
     expect(result.state.webUrl).toBe("http://127.0.0.1:18788/");
     expect(written.pid).toBe(4321);
     expect(spawnedConfigPath).toBe("/tmp/codex-gateway/config.yaml");
+    expect(probedHost).toBe("127.0.0.1");
+  });
+
+  test("reports LAN chat URLs for a public listener", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codex-gateway-service-lan-"));
+    const configPath = join(root, "config.yaml");
+    await Bun.write(
+      configPath,
+      "service:\n  host: 0.0.0.0\n  port: 18788\n  cwd: /tmp/work\n"
+    );
+    const result = await startServiceCommand({
+      configPath,
+      readState: () => null,
+      writeState: () => undefined,
+      findPort: async () => ({ port: 18788 }),
+      spawnDaemon: () => 4321,
+      networkAddresses: () => ["192.168.1.20"],
+    });
+
+    expect(result.state.host).toBe("0.0.0.0");
+    expect(result.state.webUrl).toBe("http://127.0.0.1:18788/");
+    expect(result.state.chatUrls).toEqual(["http://192.168.1.20:18788/chat"]);
+    expect(formatStartResult(result)).toContain("Chat UI: http://192.168.1.20:18788/chat");
   });
 
   test("stop kills a running daemon and removes state", async () => {
@@ -102,6 +129,7 @@ function state(input: { pid: number }): ServiceState {
     host: "127.0.0.1",
     port: 18788,
     webUrl: "http://127.0.0.1:18788/",
+    chatUrls: [],
     logPath: "/tmp/service.log",
     cwd: "/tmp/work",
     channels: {},

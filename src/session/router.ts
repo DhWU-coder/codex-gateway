@@ -1,5 +1,12 @@
-import type { CodexRunner } from "../codex/runner.js";
-import { runCodex } from "../codex/runner.js";
+import type {
+  CodexRunResult,
+  CodexRunner,
+  CodexStructuredInput,
+} from "../codex/runner.js";
+import {
+  CodexSessionResumeError,
+  runCodex,
+} from "../codex/runner.js";
 import type { CodexProgressEvent } from "../codex/json-events.js";
 import type { CodexSandboxMode } from "../config.js";
 import type {
@@ -9,8 +16,10 @@ import type {
 } from "../codex/runtime-settings.js";
 import {
   type SessionAiSummary,
+  type SessionAttachment,
   type SessionMessage,
   type SessionMetadata,
+  type SessionReference,
   SessionHistoryStore,
   type SessionSummary,
 } from "./history.js";
@@ -38,7 +47,11 @@ export interface CodexSessionRouterOptions {
   summaryModel?: string;
   summaryMaxMessages?: number;
   summaryConcurrency?: number;
-  onOutput?: (conversationKey: string, text: string) => void | Promise<void>;
+  onOutput?: (
+    conversationKey: string,
+    text: string,
+    attachments?: SessionAttachment[]
+  ) => void | Promise<void>;
   onProgress?: (conversationKey: string, event: CodexProgressEvent) => void;
 }
 
@@ -47,6 +60,7 @@ interface RoutedSession {
   metadata: SessionMetadata;
   queue: Promise<void>;
   abortController?: AbortController;
+  freshContext?: boolean;
 }
 
 export interface ArchivedSessionSwitchResult {
@@ -79,8 +93,35 @@ export interface CodexSessionStatus {
   messageCount: number;
 }
 
-export type CodexSessionOutputHandler = (text: string) => void | Promise<void>;
+export type CodexSessionOutputHandler = (
+  text: string,
+  attachments?: SessionAttachment[]
+) => void | Promise<void>;
 export type CodexSessionProgressHandler = (event: CodexProgressEvent) => void;
+
+export interface CodexSessionProcessedOutput {
+  text: string;
+  attachments?: SessionAttachment[];
+}
+
+export interface CodexSessionMessageOptions {
+  userMessage?: {
+    id?: string;
+    text?: string;
+    attachments?: SessionAttachment[];
+    references?: SessionReference[];
+  };
+  assistantMessageId?: string;
+  processOutput?: (
+    text: string
+  ) => CodexSessionProcessedOutput | Promise<CodexSessionProcessedOutput>;
+  structuredInput?: CodexStructuredInput[];
+  additionalContext?: Record<
+    string,
+    { value: string; kind: "application" | "untrusted" }
+  >;
+  onResult?: (result: CodexRunResult) => void | Promise<void>;
+}
 
 const DEFAULT_HISTORY_LIMIT = 50;
 const DEFAULT_SUMMARY_LIMIT = 50;
@@ -106,13 +147,44 @@ export class CodexSessionRouter {
     prompt: string,
     imagePaths: string[] = [],
     onOutput?: CodexSessionOutputHandler,
-    onProgress?: CodexSessionProgressHandler
+    onProgress?: CodexSessionProgressHandler,
+    messageOptions: CodexSessionMessageOptions = {}
   ): Promise<void> {
     const routed = this.getOrCreateRoutedSession(conversationKey);
     routed.queue = routed.queue
       .catch(() => undefined)
-      .then(() => this.runQueuedMessage(routed, prompt, imagePaths, onOutput, onProgress));
+      .then(() =>
+        this.runQueuedMessage(
+          routed,
+          prompt,
+          imagePaths,
+          onOutput,
+          onProgress,
+          messageOptions
+        )
+      );
     return routed.queue;
+  }
+
+  importMessages(
+    conversationKey: string,
+    messages: SessionMessage[],
+    forkedFrom?: string
+  ): void {
+    if (this.isProcessing(conversationKey)) {
+      throw new Error("当前会话仍在处理中，不能导入历史消息。");
+    }
+    const metadata = this.historyStore.importMessages(
+      conversationKey,
+      {
+        cwd: this.options.cwd,
+        model: this.options.model,
+        ...this.currentTuning(),
+      },
+      messages,
+      forkedFrom
+    );
+    this.sessions.set(conversationKey, this.createRoutedSession(metadata));
   }
 
   resetSession(conversationKey: string): void {
@@ -124,6 +196,17 @@ export class CodexSessionRouter {
       ...this.currentTuning(),
     });
     this.sessions.set(conversationKey, this.createRoutedSession(metadata));
+  }
+
+  clearNativeContext(conversationKey: string): boolean {
+    const routed = this.getOrCreateRoutedSession(conversationKey);
+    if (routed.abortController) return false;
+    routed.metadata.sessionId = undefined;
+    routed.metadata.nativeSessionStarted = false;
+    routed.metadata.lastActiveAt = new Date().toISOString();
+    routed.freshContext = true;
+    this.historyStore.write(routed.metadata);
+    return true;
   }
 
   stopSession(conversationKey: string): boolean {
@@ -365,7 +448,8 @@ export class CodexSessionRouter {
     prompt: string,
     imagePaths: string[],
     onOutput?: CodexSessionOutputHandler,
-    onProgress?: CodexSessionProgressHandler
+    onProgress?: CodexSessionProgressHandler,
+    messageOptions: CodexSessionMessageOptions = {}
   ): Promise<void> {
     if (this.sessions.get(routed.conversationKey) !== routed) return;
     const abortController = new AbortController();
@@ -373,41 +457,102 @@ export class CodexSessionRouter {
 
     const metadata = routed.metadata;
     const resume = Boolean(metadata.nativeSessionStarted && metadata.sessionId);
-    const previousMessages = resume
-      ? []
-      : this.historyStore.readRecentMessages(
-          metadata,
-          positiveInteger(this.options.historyMaxMessages, DEFAULT_HISTORY_LIMIT)
-        );
-    const runPrompt = resume ? prompt : buildPromptWithFallbackHistory(previousMessages, prompt);
-    this.historyStore.appendMessage(metadata, { role: "user", text: prompt });
+    const freshContext = routed.freshContext === true;
+    const previousMessages = this.historyStore.readRecentMessages(
+      metadata,
+      positiveInteger(this.options.historyMaxMessages, DEFAULT_HISTORY_LIMIT)
+    );
+    const runPrompt =
+      resume || freshContext
+        ? prompt
+        : buildPromptWithFallbackHistory(previousMessages, prompt);
+    this.historyStore.appendMessage(metadata, {
+      ...messageOptions.userMessage,
+      role: "user",
+      text: messageOptions.userMessage?.text ?? prompt,
+    });
 
     try {
-      const result = await this.runner(
-        this.buildRunnerInput(
-          runPrompt,
-          metadata,
-          resume,
-          imagePaths,
-          abortController.signal,
-          (event) => {
-            onProgress?.(event);
-            this.options.onProgress?.(routed.conversationKey, event);
-          }
-        )
-      );
+      const progressHandler = (event: CodexProgressEvent) => {
+        onProgress?.(event);
+        this.options.onProgress?.(routed.conversationKey, event);
+      };
+      let result;
+      try {
+        result = await this.runner(
+          this.buildRunnerInput(
+            runPrompt,
+            metadata,
+            resume,
+            imagePaths,
+            abortController.signal,
+            progressHandler,
+            undefined,
+            "session",
+            messageOptions
+          )
+        );
+      } catch (error) {
+        if (
+          !resume
+          || !(error instanceof CodexSessionResumeError)
+          || abortController.signal.aborted
+        ) {
+          throw error;
+        }
+        metadata.sessionId = undefined;
+        metadata.nativeSessionStarted = false;
+        this.historyStore.write(metadata);
+        const fallbackPrompt = buildPromptWithFallbackHistory(previousMessages, prompt);
+        result = await this.runner(
+          this.buildRunnerInput(
+            fallbackPrompt,
+            metadata,
+            false,
+            imagePaths,
+            abortController.signal,
+            progressHandler,
+            undefined,
+            "session",
+            {
+              ...messageOptions,
+              structuredInput: replaceStructuredText(
+                messageOptions.structuredInput,
+                fallbackPrompt
+              ),
+            }
+          )
+        );
+      }
 
       if (this.sessions.get(routed.conversationKey) !== routed) return;
       metadata.sessionId = result.sessionId || metadata.sessionId;
       metadata.nativeSessionStarted = Boolean(metadata.sessionId);
       metadata.lastActiveAt = new Date().toISOString();
+      routed.freshContext = false;
       this.historyStore.write(metadata);
+      await messageOptions.onResult?.(result);
       if (result.text) {
-        this.historyStore.appendMessage(metadata, { role: "assistant", text: result.text });
+        const processed = messageOptions.processOutput
+          ? await messageOptions.processOutput(result.text)
+          : { text: result.text };
+        const attachments = processed.attachments ?? [];
+        if (processed.text || attachments.length > 0) {
+          this.historyStore.appendMessage(metadata, {
+            id: messageOptions.assistantMessageId,
+            role: "assistant",
+            text: processed.text,
+            attachments: attachments.length > 0 ? attachments : undefined,
+          });
+        }
         if (onOutput) {
-          await onOutput(result.text);
+          await onOutput(processed.text, attachments);
         } else {
-          await this.options.onOutput?.(routed.conversationKey, result.text);
+          await this.options.onOutput?.(
+            routed.conversationKey,
+            processed.text,
+            attachments
+          );
         }
       }
     } catch (error) {
@@ -428,7 +573,8 @@ export class CodexSessionRouter {
     signal?: AbortSignal,
     onProgress?: CodexSessionProgressHandler,
     model = this.sessionModel(metadata),
-    tuningSource: "session" | "current" = "session"
+    tuningSource: "session" | "current" = "session",
+    messageOptions: CodexSessionMessageOptions = {}
   ) {
     const tuning = tuningSource === "current" ? this.currentTuning() : this.sessionTuning(metadata);
     return {
@@ -452,6 +598,8 @@ export class CodexSessionRouter {
       signal,
       projectRoot: this.options.projectRoot,
       onProgress,
+      structuredInput: messageOptions.structuredInput,
+      additionalContext: messageOptions.additionalContext,
     };
   }
 
@@ -531,6 +679,20 @@ export class CodexSessionRouter {
       cacheContext
     );
   }
+}
+
+function replaceStructuredText(
+  input: CodexStructuredInput[] | undefined,
+  text: string
+): CodexStructuredInput[] | undefined {
+  if (!input || input.length === 0) return undefined;
+  let replaced = false;
+  const output = input.map((item) => {
+    if (replaced || item.type !== "text") return item;
+    replaced = true;
+    return { type: "text" as const, text };
+  });
+  return replaced ? output : [{ type: "text", text }, ...output];
 }
 
 function buildPromptWithFallbackHistory(messages: SessionMessage[], prompt: string): string {

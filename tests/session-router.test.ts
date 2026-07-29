@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { CodexSessionRouter } from "../src/session/router.js";
-import type { CodexRunner } from "../src/codex/runner.js";
+import {
+  CodexSessionResumeError,
+  type CodexRunner,
+} from "../src/codex/runner.js";
 
 describe("Codex session router", () => {
   test("persists a returned Codex session id and resumes on the next message", async () => {
@@ -149,6 +152,196 @@ describe("Codex session router", () => {
     expect(progress).toEqual(["om_1:tool_start", "om_2:tool_start"]);
   });
 
+  test("透传结构化输入、附加上下文和公开引用元数据", async () => {
+    const inputs: Parameters<CodexRunner>[0][] = [];
+    const router = new CodexSessionRouter({
+      cwd: "/tmp/work",
+      historyBaseDir: mkdtempSync(join(tmpdir(), "codex-gateway-router-structured-")),
+      runner: async (input) => {
+        inputs.push(input);
+        return { text: "完成", sessionId: "thread-structured" };
+      },
+    });
+
+    await router.send("web:chat-structured", "检查配置", [], undefined, undefined, {
+      structuredInput: [
+        { type: "text", text: "检查配置" },
+        { type: "mention", name: "config.yaml", path: "/tmp/work/config.yaml" },
+      ],
+      additionalContext: {
+        plugin: { value: "使用已安装插件", kind: "application" },
+      },
+      userMessage: {
+        references: [
+          { id: "capability-file", name: "config.yaml", kind: "file" },
+        ],
+      },
+    });
+
+    expect(inputs[0]?.structuredInput).toEqual([
+      { type: "text", text: "检查配置" },
+      { type: "mention", name: "config.yaml", path: "/tmp/work/config.yaml" },
+    ]);
+    expect(inputs[0]?.additionalContext).toEqual({
+      plugin: { value: "使用已安装插件", kind: "application" },
+    });
+    expect(
+      router.getArchivedSessionDetail("web:chat-structured")?.messages[0]?.references
+    ).toEqual([
+      { id: "capability-file", name: "config.yaml", kind: "file" },
+    ]);
+  });
+
+  test("Thread 恢复失败时只新建一次并使用近期历史继续", async () => {
+    const calls: Array<{ prompt: string; sessionId?: string; resume: boolean }> = [];
+    const router = new CodexSessionRouter({
+      cwd: "/tmp/work",
+      historyBaseDir: mkdtempSync(join(tmpdir(), "codex-gateway-router-resume-fallback-")),
+      runner: async (input) => {
+        calls.push({
+          prompt: input.prompt,
+          sessionId: input.sessionId,
+          resume: Boolean(input.resume),
+        });
+        if (calls.length === 2) {
+          throw new CodexSessionResumeError("原 Thread 不存在。");
+        }
+        return {
+          text: calls.length === 1 ? "第一条回复" : "恢复后的回复",
+          sessionId: calls.length === 1 ? "thread-old" : "thread-new",
+        };
+      },
+    });
+
+    await router.send("web:chat-fallback", "第一条");
+    await router.send("web:chat-fallback", "继续");
+
+    expect(calls).toHaveLength(3);
+    expect(calls[1]).toMatchObject({ sessionId: "thread-old", resume: true });
+    expect(calls[2]).toMatchObject({ sessionId: undefined, resume: false });
+    expect(calls[2]?.prompt).toContain("用户：第一条");
+    expect(calls[2]?.prompt).toContain("助手：第一条回复");
+    expect(calls[2]?.prompt).toContain("当前用户消息：\n继续");
+    expect(router.getStatus("web:chat-fallback").sessionId).toBe("thread-new");
+  });
+
+  test("保存消息附件并在输出处理后回调清理结果", async () => {
+    const outputs: Array<{ text: string; attachmentIds: string[] }> = [];
+    const router = new CodexSessionRouter({
+      cwd: "/tmp/work",
+      historyBaseDir: mkdtempSync(join(tmpdir(), "codex-gateway-router-attachments-")),
+      createArchiveId: createIdFactory("archive-attachments"),
+      runner: async () => ({
+        text: "已生成 [[codex:file:/tmp/work/report.html]]",
+        sessionId: "codex-attachments",
+      }),
+    });
+
+    await router.send(
+      "web:chat-1",
+      "生成报告",
+      [],
+      (text, attachments) => {
+        outputs.push({
+          text,
+          attachmentIds: (attachments ?? []).map((attachment) => attachment.id),
+        });
+      },
+      undefined,
+      {
+        userMessage: {
+          id: "message-user",
+          attachments: [
+            {
+              id: "file-upload",
+              name: "source.csv",
+              kind: "upload",
+              mimeType: "text/csv",
+              size: 256,
+            },
+          ],
+        },
+        assistantMessageId: "message-assistant",
+        processOutput: async () => ({
+          text: "已生成报告",
+          attachments: [
+            {
+              id: "file-generated",
+              name: "report.html",
+              kind: "generated",
+              mimeType: "text/html",
+              size: 512,
+            },
+          ],
+        }),
+      }
+    );
+
+    expect(outputs).toEqual([
+      { text: "已生成报告", attachmentIds: ["file-generated"] },
+    ]);
+    expect(router.getArchivedSessionDetail("web:chat-1")?.messages).toEqual([
+      expect.objectContaining({
+        id: "message-user",
+        role: "user",
+        attachments: [expect.objectContaining({ id: "file-upload" })],
+      }),
+      expect.objectContaining({
+        id: "message-assistant",
+        role: "assistant",
+        text: "已生成报告",
+        attachments: [expect.objectContaining({ id: "file-generated" })],
+      }),
+    ]);
+  });
+
+  test("导入来源消息后首次请求使用 fallback 历史且不恢复原生 Session", async () => {
+    const calls: Array<{ prompt: string; sessionId?: string; resume: boolean }> = [];
+    const router = new CodexSessionRouter({
+      cwd: "/tmp/work",
+      historyBaseDir: mkdtempSync(join(tmpdir(), "codex-gateway-router-import-")),
+      createArchiveId: createIdFactory("archive-imported"),
+      runner: async (input) => {
+        calls.push({
+          prompt: input.prompt,
+          sessionId: input.sessionId,
+          resume: Boolean(input.resume),
+        });
+        return { text: "继续完成", sessionId: "codex-new" };
+      },
+    });
+    router.importMessages(
+      "web:chat-fork",
+      [
+        {
+          id: "message-1",
+          role: "user",
+          text: "原始需求",
+          createdAt: "2026-07-28T00:00:00.000Z",
+        },
+        {
+          id: "message-2",
+          role: "assistant",
+          text: "原始方案",
+          createdAt: "2026-07-28T00:01:00.000Z",
+        },
+      ],
+      "chat-source"
+    );
+
+    expect(router.getStatus("web:chat-fork").sessionId).toBeUndefined();
+    await router.send("web:chat-fork", "继续实现");
+
+    expect(calls[0]).toMatchObject({ sessionId: undefined, resume: false });
+    expect(calls[0]?.prompt).toContain("用户：原始需求");
+    expect(calls[0]?.prompt).toContain("助手：原始方案");
+    expect(calls[0]?.prompt).toContain("当前用户消息：\n继续实现");
+    expect(router.getCurrentArchivedSession("web:chat-fork")).toMatchObject({
+      forkedFrom: "chat-source",
+      sessionId: "codex-new",
+    });
+  });
+
   test("keeps the previous archive when resetting to a new session", async () => {
     let callCount = 0;
     const router = new CodexSessionRouter({
@@ -180,6 +373,46 @@ describe("Codex session router", () => {
         messageCount: 2,
       }),
     ]);
+  });
+
+  test("清空原生上下文时保留页面历史且下一轮不回填旧消息", async () => {
+    const inputs: Array<{ prompt: string; resume?: boolean; sessionId?: string }> = [];
+    const router = new CodexSessionRouter({
+      cwd: "/tmp/project",
+      model: "gpt-5",
+      historyBaseDir: mkdtempSync(join(tmpdir(), "codex-gateway-router-clear-native-")),
+      runner: async (input) => {
+        inputs.push({
+          prompt: input.prompt,
+          resume: input.resume,
+          sessionId: input.sessionId,
+        });
+        return {
+          text: input.prompt === "第二条" ? "第二答" : "第一答",
+          sessionId: inputs.length === 1 ? "thread-first" : "thread-second",
+        };
+      },
+    });
+
+    await router.send("dm:ou_sender", "第一条");
+    expect(
+      router.getArchivedSessionDetail("dm:ou_sender")?.messages
+    ).toHaveLength(2);
+    expect(router.clearNativeContext("dm:ou_sender")).toBe(true);
+    expect(
+      router.getArchivedSessionDetail("dm:ou_sender")?.messages
+    ).toHaveLength(2);
+
+    await router.send("dm:ou_sender", "第二条");
+
+    expect(inputs[1]).toEqual({
+      prompt: "第二条",
+      resume: false,
+      sessionId: undefined,
+    });
+    expect(
+      router.getArchivedSessionDetail("dm:ou_sender")?.messages
+    ).toHaveLength(4);
   });
 
   test("applies updated runtime defaults only to newly created sessions", async () => {

@@ -54,3 +54,46 @@ export function resolveDefaultFeishuInstructionsPath(input?: {
   const accountId = input?.accountId ?? "default";
   return join(resolveGatewayHome(input), "channels", "feishu", accountId, "AGENTS.md");
 }
+
+export function resolveWebChatUsersPath(input?: {
+  env?: NodeJS.ProcessEnv;
+  homeDir?: string;
+}): string {
+  return join(resolveGatewayHome(input), "web-chat", "users.json");
+}
+
+export function resolveWebChatAuthSessionsPath(input?: {
+  env?: NodeJS.ProcessEnv;
+  homeDir?: string;
+}): string {
+  return join(resolveGatewayHome(input), "web-chat", "auth-sessions.json");
+}
+
+export function resolveWebChatUserRoot(
+  userId: string,
+  input?: { env?: NodeJS.ProcessEnv; homeDir?: string }
+): string {
+  return join(resolveGatewayHome(input), "channels", "web", safePathSegment(userId));
+}
+
+export function resolveWebChatWorkspacePath(
+  userId: string,
+  input?: { env?: NodeJS.ProcessEnv; homeDir?: string }
+): string {
+  return join(resolveWebChatUserRoot(userId, input), "workspace");
+}
+
+export function resolveWebChatSessionsPath(
+  userId: string,
+  input?: { env?: NodeJS.ProcessEnv; homeDir?: string }
+): string {
+  return join(resolveWebChatUserRoot(userId, input), "sessions");
+}
+
+function safePathSegment(value: string): string {
+  const normalized = value.trim();
+  if (!normalized || !/^[a-zA-Z0-9_-]+$/.test(normalized)) {
+    throw new Error("路径标识只能包含字母、数字、下划线和连字符。");
+  }
+  return normalized;
+}

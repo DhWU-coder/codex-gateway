@@ -65,8 +65,12 @@ export interface FeishuSummaryConfig {
 
 export interface GatewayConfig {
   service: {
+    host: string;
     port: number;
     cwd: string;
+  };
+  webChat: {
+    registrationEnabled: boolean;
   };
   codex: CodexConfig;
   channels: {
@@ -97,6 +101,7 @@ export function loadGatewayConfigFromObject(
   const homeDir = options.homeDir;
   const raw = asRecord(rawInput);
   const serviceRaw = asRecord(raw.service);
+  const webChatRaw = asRecord(raw.webChat);
   const codexRaw = asRecord(raw.codex);
   const channelsRaw = asRecord(raw.channels);
   const feishuRaw = asRecord(channelsRaw.feishu);
@@ -117,8 +122,12 @@ export function loadGatewayConfigFromObject(
 
   return {
     service: {
+      host: normalizeServiceHost(readString(serviceRaw.host) || env.CODEX_GATEWAY_SERVICE_HOST),
       port: readPort(serviceRaw.port) ?? resolvePreferredServicePort(env),
       cwd: serviceCwd,
+    },
+    webChat: {
+      registrationEnabled: readBoolean(webChatRaw.registrationEnabled) ?? false,
     },
     codex,
     channels: {
@@ -127,6 +136,10 @@ export function loadGatewayConfigFromObject(
       },
     },
   };
+}
+
+function normalizeServiceHost(value: string | undefined): string {
+  return value === "0.0.0.0" ? value : "127.0.0.1";
 }
 
 function loadCodexConfig(raw: Record<string, unknown>, env: NodeJS.ProcessEnv): CodexConfig {

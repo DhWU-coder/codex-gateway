@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ChannelManager, ChannelReloadResult } from "../src/channel-manager.js";
 import {
+  sanitizeServiceDiagnostic,
   startServiceDaemon,
   type ServiceConfigWatcherOptions,
 } from "../src/service/daemon.js";
@@ -29,6 +30,16 @@ afterEach(() => {
 });
 
 describe("服务 Daemon 配置热更新", () => {
+  test("服务诊断日志隐藏 Token、Cookie 和密码", () => {
+    expect(
+      sanitizeServiceDiagnostic(
+        'Authorization: Bearer abc.def Cookie=session-private password="hello" appSecret: top-secret'
+      )
+    ).toBe(
+      "Authorization: Bearer [已隐藏] Cookie=[已隐藏] password=[已隐藏] appSecret=[已隐藏]"
+    );
+  });
+
   test("监听项目配置并隔离解析错误", async () => {
     let watcherOptions: ServiceConfigWatcherOptions | undefined;
     let watcherClosed = false;
@@ -38,6 +49,7 @@ describe("服务 Daemon 配置热更新", () => {
     let restartOptions: SpawnRestartOptions | undefined;
     let modelCatalogCommand = "";
     let channelModelCatalogProvider: WebServerOptions["modelCatalogProvider"];
+    let channelWebChatManager: WebServerOptions["webChatManager"];
     const reloads: string[] = [];
     const manager = {
       async start() {},
@@ -56,6 +68,7 @@ describe("服务 Daemon 配置热更新", () => {
       configPath,
       createChannelManager: (_config, dependencies) => {
         channelModelCatalogProvider = dependencies.modelCatalogProvider;
+        channelWebChatManager = dependencies.webChatManager;
         return manager;
       },
       startWebServer: (options) => {
@@ -107,6 +120,7 @@ describe("服务 Daemon 配置热更新", () => {
     try {
       expect(watcherOptions?.configPath).toBe(configPath);
       expect(webOptions).toMatchObject({
+        hostname: "127.0.0.1",
         projectRoot: directory,
         configPath,
         logPath: expect.stringContaining("service.log"),
@@ -114,6 +128,8 @@ describe("服务 Daemon 配置热更新", () => {
       expect(webOptions?.configReloadStateProvider?.()).toEqual({ status: "idle" });
       expect(modelCatalogCommand).toBe("codex");
       expect(channelModelCatalogProvider).toBe(webOptions?.modelCatalogProvider);
+      expect(channelWebChatManager).toBe(webOptions?.webChatManager);
+      expect(webOptions?.webChatRegistrationEnabledProvider?.()).toBe(false);
       expect(await webOptions?.modelCatalogProvider?.()).toEqual([
         expect.objectContaining({ model: "gpt-test", isDefault: true }),
       ]);
@@ -128,9 +144,10 @@ describe("服务 Daemon 配置热更新", () => {
         logPath: expect.stringContaining("service.log"),
       });
 
-      writeFileSync(configPath, configText("cli_updated"));
+      writeFileSync(configPath, configText("cli_updated", true));
       await watcherOptions?.onChange();
       expect(reloads).toEqual(["cli_updated"]);
+      expect(webOptions?.webChatRegistrationEnabledProvider?.()).toBe(true);
       expect(controller.configReloadState()).toMatchObject({
         status: "success",
         result: expect.objectContaining({ errors: [] }),
@@ -139,6 +156,7 @@ describe("服务 Daemon 配置热更新", () => {
       writeFileSync(configPath, "channels: [broken");
       await watcherOptions?.onChange();
       expect(reloads).toEqual(["cli_updated"]);
+      expect(webOptions?.webChatRegistrationEnabledProvider?.()).toBe(true);
       expect(controller.configReloadState()).toMatchObject({
         status: "error",
         error: expect.stringContaining("Flow sequence"),
@@ -165,10 +183,12 @@ function reloadResult(): ChannelReloadResult {
   };
 }
 
-function configText(appId: string): string {
+function configText(appId: string, registrationEnabled = false): string {
   return `service:
   port: 18788
   cwd: ${directory}/workspace
+webChat:
+  registrationEnabled: ${registrationEnabled}
 codex:
   command: codex
 channels:

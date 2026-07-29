@@ -20,8 +20,20 @@ import { readServiceLogTail } from "./web/log-service.js";
 import { getUsageDashboard } from "./web/usage-service.js";
 import { renderAdminPage } from "./web/page.js";
 import { filterChannelStatusForDisplay } from "./web/stderr-display.js";
+import {
+  isChatRoute,
+  isLoopbackAddress,
+  type WebRequestContext,
+} from "./web/access-control.js";
+import type { WebChatManager } from "./web-chat/manager.js";
+import type { WebChatAuthService } from "./web-chat/auth.js";
+import {
+  handleWebChatAdminRequest,
+  handleWebChatRequest,
+} from "./web-chat/http.js";
 
 export interface WebServerOptions {
+  hostname?: string;
   port: number;
   stateProvider: () => ServiceState | null;
   channelStatusProvider: () => ReturnType<ChannelManager["getStatus"]>;
@@ -34,6 +46,9 @@ export interface WebServerOptions {
   configReloadStateProvider?: () => unknown;
   modelCatalogProvider?: () => Promise<CodexModelOption[]>;
   codexRuntimeDefaultsProvider?: () => Promise<CodexRuntimeDefaults>;
+  webChatManager?: WebChatManager;
+  webChatAuth?: WebChatAuthService;
+  webChatRegistrationEnabledProvider?: () => boolean;
 }
 
 export interface WebRequestOptions {
@@ -48,6 +63,9 @@ export interface WebRequestOptions {
   configReloadStateProvider?: () => unknown;
   modelCatalogProvider?: () => Promise<CodexModelOption[]>;
   codexRuntimeDefaultsProvider?: () => Promise<CodexRuntimeDefaults>;
+  webChatManager?: WebChatManager;
+  webChatAuth?: WebChatAuthService;
+  webChatRegistrationEnabledProvider?: () => boolean;
 }
 
 export interface WebChannelManager {
@@ -71,17 +89,50 @@ export interface WebChannelManager {
 
 export function startWebServer(options: WebServerOptions): ReturnType<typeof Bun.serve> {
   return Bun.serve({
-    hostname: "127.0.0.1",
+    hostname: options.hostname ?? "127.0.0.1",
     port: options.port,
-    fetch: (request) => handleWebRequest(request, options),
+    fetch: (request, server) =>
+      handleWebRequest(request, options, {
+        remoteAddress: server.requestIP(request)?.address,
+      }),
   });
 }
 
 export async function handleWebRequest(
   request: Request,
-  options: WebRequestOptions
+  options: WebRequestOptions,
+  context: WebRequestContext = { remoteAddress: "127.0.0.1" }
 ): Promise<Response> {
   const url = new URL(request.url);
+  const localRequest = isLoopbackAddress(context.remoteAddress);
+  if (!localRequest && !isChatRoute(url.pathname)) {
+    if (url.pathname === "/") {
+      return new Response(null, { status: 302, headers: { location: "/chat" } });
+    }
+    return jsonResponse({ error: "管理页面和管理 API 仅允许本机访问。" }, 403);
+  }
+  if (isChatRoute(url.pathname)) {
+    if (!options.webChatManager || !options.webChatAuth) {
+      return jsonResponse({ error: "Web Chat 尚未初始化。" }, 503);
+    }
+    return handleWebChatRequest(
+      request,
+      {
+        manager: options.webChatManager,
+        auth: options.webChatAuth,
+        registrationEnabled: options.webChatRegistrationEnabledProvider,
+      },
+      context
+    );
+  }
+  if (options.webChatManager && options.webChatAuth) {
+    const response = await handleWebChatAdminRequest(
+      request,
+      options.webChatManager,
+      options.webChatAuth
+    );
+    if (response) return response;
+  }
   if (request.method === "GET" && url.pathname === "/") {
     return htmlResponse(renderAdminPage());
   }

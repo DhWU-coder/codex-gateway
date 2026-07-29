@@ -2,8 +2,14 @@
 # 默认实际配置文件是项目根目录下的 config.yaml
 
 service:
+  # 默认只允许本机访问；改为 0.0.0.0 后开放局域网 Chat
+  host: 127.0.0.1
   port: 18788
   cwd: ~/.codex-gateway/workspace
+
+webChat:
+  # 开放注册默认关闭
+  registrationEnabled: false
 
 codex:
   command: codex

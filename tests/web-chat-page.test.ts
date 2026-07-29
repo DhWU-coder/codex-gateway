@@ -1,0 +1,319 @@
+import { describe, expect, test } from "bun:test";
+import { renderWebChatPage } from "../src/web/chat/page.js";
+import { WEB_CHAT_MARKDOWN_SCRIPT } from "../src/web/chat/markdown.js";
+
+describe("Web Chat 页面", () => {
+  test("仅在开放注册时显示登录与注册切换表单", () => {
+    const disabled = renderWebChatPage();
+    const enabled = renderWebChatPage({ registrationEnabled: true });
+
+    expect(disabled).not.toContain('id="authRegisterTab"');
+    expect(disabled).not.toContain('id="registerForm"');
+    expect(enabled).toContain('id="authLoginTab"');
+    expect(enabled).toContain('id="authRegisterTab"');
+    expect(enabled).toContain('id="registerForm"');
+    expect(enabled).toContain('id="registerUsernameInput"');
+    expect(enabled).toContain('id="registerPasswordInput"');
+    expect(enabled).toContain('id="registerConfirmPasswordInput"');
+    expect(enabled).toContain('minlength="8"');
+    expect(enabled).toContain("/api/chat/auth/register");
+    expect(enabled).toContain('if (password !== confirmation)');
+    expect(enabled).toContain('byId("registerError").textContent');
+  });
+
+  test("包含完整 Chat 工作区和响应式控件", () => {
+    const html = renderWebChatPage();
+
+    for (const marker of [
+      'id="loginView"',
+      'id="chatApp"',
+      'id="sessionSidebar"',
+      'id="sessionList"',
+      'id="sessionContextMenu"',
+      'id="newSessionButton"',
+      'id="messageList"',
+      'id="fileInput"',
+      'id="composerInput"',
+      'id="commandPalette"',
+      'id="referencePalette"',
+      'id="selectedReferences"',
+      'id="runtimeSummaryButton"',
+      'id="runtimeMenu"',
+      'id="latestActivityBar"',
+      'id="sendButton"',
+      'id="stopButton"',
+      'id="mobileMenuButton"',
+      'id="themeButton"',
+      'id="errorToast"',
+    ]) {
+      expect(html).toContain(marker);
+    }
+    expect(html).toContain("@media (max-width: 760px)");
+    expect(html).toContain("env(safe-area-inset-bottom)");
+  });
+
+  test("认证首屏安全内嵌 Bootstrap 并在同步恢复前禁止绘制", () => {
+    const html = renderWebChatPage({
+      initiallyAuthenticated: true,
+      bootstrapData: {
+        version: 1,
+        identity: {
+          user: {
+            id: "user-test",
+            username: "</script><script>globalThis.attacked=true</script>",
+            enabled: true,
+            createdAt: "2026-07-29T09:00:00.000Z",
+            updatedAt: "2026-07-29T09:00:00.000Z",
+            workspacePath: "/private/workspace",
+            sessionsPath: "/private/sessions",
+          },
+          csrfToken: "csrf-test",
+          expiresAt: 1_800_000_000_000,
+        },
+        models: [],
+        sessions: [],
+        current: null,
+        commands: [],
+      },
+    });
+
+    expect(html).toContain(
+      '<html lang="zh-CN" data-chat-bootstrap="pending">'
+    );
+    expect(html).toContain(
+      '<script type="application/json" id="webChatBootstrap">'
+    );
+    expect(html).toContain("\\u003c/script\\u003e");
+    expect(html).not.toContain(
+      "</script><script>globalThis.attacked=true</script>"
+    );
+    expect(html).toContain(
+      ':root[data-chat-bootstrap="pending"] body'
+    );
+    expect(html).toContain("function readServerBootstrap()");
+    expect(html).toContain("function restoreServerBootstrap(data)");
+    expect(html).toContain(
+      'document.documentElement.removeAttribute("data-chat-bootstrap")'
+    );
+  });
+
+  test("会话菜单和主要操作使用清晰标签与 Lucide 图标", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain('class="latest-activity" id="latestActivityBar"');
+    for (const label of ["重命名", "删除", "设置", "主题", "退出"]) {
+      expect(html).toContain(`class="button-label">${label}</span>`);
+    }
+    for (const legacyIcon of ["⑂", "⌫", "◎", "↪", "⚙"]) {
+      expect(html).not.toContain(legacyIcon);
+    }
+    expect(html).toContain("session-menu-icon");
+    expect(html).toContain("session-rename-icon");
+    expect(html).toContain("danger-action");
+    expect(html).toContain("data-tooltip=");
+    expect(html).toContain('class="button-icon"');
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain('focusable="false"');
+    expect(html).toContain(".latest-activity");
+    expect(html).toContain(".tooltip-button");
+    expect(html).not.toContain('byId("themeButton").textContent =');
+  });
+
+  test("账户设置支持默认模型配置和独立修改密码页签", () => {
+    const html = renderWebChatPage();
+
+    for (const marker of [
+      'id="accountDialog"',
+      'id="accountSettingsModelTab"',
+      'id="accountSettingsPasswordTab"',
+      'id="accountModelPanel"',
+      'id="accountPasswordPanel"',
+      'id="accountModelForm"',
+      'id="accountModelInput"',
+      'id="accountModelOptions"',
+      'id="accountEffortSelect"',
+      'id="accountSpeedSelect"',
+      'id="passwordForm"',
+    ]) {
+      expect(html).toContain(marker);
+    }
+    expect(html).toContain("/api/chat/account-settings");
+    expect(html).toContain("function switchAccountSettingsTab(tab)");
+    expect(html).toContain("async function openAccountSettings()");
+    expect(html).toContain("function renderAccountSettings()");
+    expect(html).toContain("async function saveAccountSettings(event)");
+    expect(html).toContain("accountSettings.effective");
+    expect(html).toContain("accountSettings.inherited");
+    expect(html).toContain("accountSettings.defaults");
+    expect(html).toContain('value="">继承全局');
+    expect(html).not.toContain('id="accountVerbosity');
+  });
+
+  test("会话列表支持右键、移动端省略号、长按、行内重命名和删除", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain('id="sessionContextRename"');
+    expect(html).toContain('id="sessionContextDelete"');
+    expect(html).toContain('addEventListener("contextmenu"');
+    expect(html).toContain('className = "session-more"');
+    expect(html).toContain("startSessionLongPress");
+    expect(html).toContain("550");
+    expect(html).toContain("beginSessionRename");
+    expect(html).toContain('event.key === "Escape"');
+    expect(html).toContain('method: "PATCH"');
+    expect(html).toContain('method: "DELETE"');
+  });
+
+  test("会话列表支持选择、全选和一次性批量删除", () => {
+    const html = renderWebChatPage();
+
+    for (const marker of [
+      'id="sessionSelectionToolbar"',
+      'id="sessionSelectionButton"',
+      'id="sessionSelectAll"',
+      'id="sessionSelectionCount"',
+      'id="sessionBulkDelete"',
+      'id="sessionSelectionCancel"',
+    ]) {
+      expect(html).toContain(marker);
+    }
+    expect(html).toContain("state.selectedSessionIds");
+    expect(html).toContain("function enterSessionSelection()");
+    expect(html).toContain("function toggleAllSessions()");
+    expect(html).toContain("async function batchDeleteSessions()");
+    expect(html).toContain("\\u6B63\\u5728\\u8FD0\\u884C\\uFF0C\\u5C06\\u5148\\u505C\\u6B62\\u4EFB\\u52A1");
+    expect(html).toContain('method: "DELETE"');
+    expect(html).toContain('body: { sessionIds: selectedIds }');
+    expect(html).toContain("selectAll.indeterminate");
+    expect(html).toContain(".session-selection-toolbar");
+    expect(html).toContain(".session-select-box");
+  });
+
+  test("模型配置位于 Composer，命令和引用面板不包含 Verbosity", () => {
+    const html = renderWebChatPage();
+
+    for (const removed of [
+      'id="modelInput"',
+      'id="effortSelect"',
+      'id="fastToggle"',
+      'id="verbositySelect"',
+      'id="runtimeControls"',
+      'id="runtimeMenuButton"',
+    ]) {
+      expect(html).not.toContain(removed);
+    }
+    expect(html).toContain("renderRuntimeMenu");
+    expect(html).toContain("renderCommandPalette");
+    expect(html).toContain("renderReferencePalette");
+    expect(html).toContain("/api/chat/capabilities");
+    expect(html).toContain("/api/chat/files/search");
+    expect(html).toContain("/commands");
+    expect(html).toContain("state.selectedReferences");
+    expect(html).not.toContain("/verbosity");
+    expect(html).not.toContain("Verbosity 默认");
+  });
+
+  test("新建与发送按钮稳定居中且模型摘要显示实际生效配置", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain(
+      ".new-session { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }"
+    );
+    expect(html).toContain(
+      ".composer-submit { width: 42px; height: 42px; min-height: 42px; display: grid; place-items: center; padding: 0; }"
+    );
+    expect(html).toContain(
+      ".composer-submit .button-icon { margin: 0; }"
+    );
+    expect(html).toContain("function effectiveModel()");
+    expect(html).toContain("model.isDefault");
+    expect(html).toContain("model.defaultReasoningEffort");
+    expect(html).toContain('session.fast ? "Fast" : "\\u6807\\u51C6"');
+    expect(html).toContain('join(" \\u00B7 ")');
+    expect(html).toContain(
+      "effectiveReasoningEffort(null, selectedModel)"
+    );
+    expect(html).not.toContain(
+      '<span id="runtimeSummaryText">模型默认</span>'
+    );
+    expect(html).not.toContain("\\u6A21\\u578B\\u9ED8\\u8BA4");
+  });
+
+  test("Trace 按顺序渲染中间回复和折叠工具组，并显示最新活动", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain("function createTraceNode(trace)");
+    expect(html).toContain("(trace.entries || []).forEach");
+    expect(html).toContain('entry.type === "tool_group"');
+    expect(html).toContain("createToolGroupNode");
+    expect(html).toContain("trace.status === \"running\"");
+    expect(html).toContain("state.expandedTraceIds");
+    expect(html).toContain("state.activities.set");
+    expect(html).toContain("scheduleTraceRefresh");
+    expect(html).toContain("scrollIntoView");
+    expect(html).toContain("message.activity");
+    expect(html).toContain("message.trace");
+    expect(html).toContain('content: "›"');
+    expect(html).not.toContain('content: "\\u203A"');
+  });
+
+  test("只包含 Chat API，不暴露管理导航和完整日志能力", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain("/api/chat/");
+    expect(html).not.toContain("/api/config");
+    expect(html).not.toContain("/api/logs");
+    expect(html).not.toContain("/api/web-chat");
+    expect(html).not.toContain("标准错误");
+    expect(html).not.toContain("stderr");
+    expect(html).not.toContain("管理后台");
+  });
+
+  test("任意 Chat API 返回 401 时统一清理旧状态并返回登录页", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain('if (response.status === 401) resetAuthenticationState();');
+    expect(html).toContain("function resetAuthenticationState()");
+    expect(html).toContain("state.eventSource?.close();");
+    expect(html).toContain("state.streamText.clear();");
+    expect(html).toContain("state.pendingFiles = [];");
+    expect(html).toContain("state.selectedReferences = [];");
+    expect(html).toContain('byId("currentUserName").textContent = "";');
+    expect(html).toContain('switchAuthMode("login");');
+    expect(html).toContain("setAuthenticated(false);");
+    expect(html).toContain("async function restoreAuthenticatedPage()");
+    expect(html).toContain("await loadInitialData().catch(showError);");
+  });
+
+  test("文件选择、拖拽和粘贴共用附件队列并允许纯附件发送", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain('id="fileDropOverlay"');
+    expect(html).toContain("松开以添加文件");
+    expect(html).toContain("function addPendingFiles(files)");
+    expect(html).toContain('addEventListener("dragenter"');
+    expect(html).toContain('addEventListener("dragleave"');
+    expect(html).toContain('addEventListener("drop"');
+    expect(html).toContain('addEventListener("paste"');
+    expect(html).toContain("clipboardData.items");
+    expect(html).toContain("MAX_PENDING_FILE_BYTES");
+    expect(html).toContain("state.selectedReferences.length === 0");
+  });
+
+  test("所有内联脚本语法有效且 Markdown 不使用 innerHTML", () => {
+    const html = renderWebChatPage();
+    const scripts = Array.from(
+      html.matchAll(/<script>([\s\S]*?)<\/script>/g),
+      (match) => match[1]
+    );
+
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const script of scripts) {
+      expect(() => new Function(script)).not.toThrow();
+    }
+    expect(WEB_CHAT_MARKDOWN_SCRIPT).not.toContain("innerHTML");
+    expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain("textContent");
+    expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain('protocol === "https:"');
+    expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain('protocol === "http:"');
+  });
+});

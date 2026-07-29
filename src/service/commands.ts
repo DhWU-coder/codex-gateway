@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { loadGatewayConfig } from "../config.js";
 import { resolveConfigPath } from "../paths.js";
+import { listLanIpv4Addresses, resolveServiceUrls } from "./addresses.js";
 import { getServiceLogPath } from "./paths.js";
 import { findServicePort, type ServicePortResult } from "./ports.js";
 import { spawnDetachedServiceDaemon } from "./process.js";
@@ -30,7 +31,8 @@ export interface ServiceCommandOptions {
   isStateRunning?: (state: ServiceState | null) => boolean;
   isProcessRunning?: (pid: number) => boolean;
   killProcess?: (pid: number) => void;
-  findPort?: (preferredPort: number) => Promise<ServicePortResult>;
+  findPort?: (preferredPort: number, host: string) => Promise<ServicePortResult>;
+  networkAddresses?: () => string[];
   spawnDaemon?: (options: {
     cwd: string;
     port: number;
@@ -46,6 +48,7 @@ export function formatStatus(state: ServiceState | null): string {
   return [
     `codex-gateway service running (pid ${state.pid})`,
     `Web UI: ${state.webUrl}`,
+    ...(state.chatUrls ?? []).map((url) => `Chat UI: ${url}`),
     `CWD: ${state.cwd}`,
     `Log: ${state.logPath}`,
   ].join("\n");
@@ -60,6 +63,7 @@ export function formatStartResult(result: StartServiceResult): string {
       : `codex-gateway service started (pid ${result.state.pid})`
   );
   lines.push(`Web UI: ${result.state.webUrl}`);
+  for (const url of result.state.chatUrls ?? []) lines.push(`Chat UI: ${url}`);
   lines.push(`Log: ${result.state.logPath}`);
   return lines.join("\n");
 }
@@ -78,7 +82,10 @@ export async function startServiceCommand(
   const config = loadGatewayConfig({ configPath, env: options.env });
   const cwd = config.service.cwd;
   mkdirSync(cwd, { recursive: true, mode: 0o700 });
-  const portResult = await (options.findPort ?? findServicePort)(config.service.port);
+  const portResult = await (options.findPort ?? findServicePort)(
+    config.service.port,
+    config.service.host
+  );
   const logPath = getServiceLogPath({ env: options.env });
   const pid = (options.spawnDaemon ?? spawnDetachedServiceDaemon)({
     cwd,
@@ -87,13 +94,19 @@ export async function startServiceCommand(
     configPath,
     env: options.env,
   });
-  const host = "127.0.0.1";
+  const host = config.service.host;
+  const urls = resolveServiceUrls(
+    host,
+    portResult.port,
+    (options.networkAddresses ?? listLanIpv4Addresses)()
+  );
   const state: ServiceState = {
     pid,
     startedAt: (options.now ?? (() => new Date()))().toISOString(),
     host,
     port: portResult.port,
-    webUrl: `http://${host}:${portResult.port}/`,
+    webUrl: urls.webUrl,
+    chatUrls: urls.chatUrls,
     logPath,
     cwd,
     channels: {},

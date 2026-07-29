@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ChannelManager } from "../src/channel-manager.js";
 import type { FeishuAccountConfig, GatewayConfig } from "../src/config.js";
+import type { WebChatManager } from "../src/web-chat/manager.js";
 
 describe("Channel manager", () => {
   test("passes the shared model catalog provider to every Feishu channel", () => {
@@ -62,9 +63,31 @@ describe("Channel manager", () => {
 
     expect(started).toEqual(["enabled"]);
     expect(manager.getStatus().channels.map((channel) => channel.id)).toEqual([
+      "web-chat",
       "enabled",
       "disabled",
     ]);
+  });
+
+  test("配置热更新会把最新 Codex 默认值传播给 Web Chat", async () => {
+    const updates: GatewayConfig["codex"][] = [];
+    const webChatManager = {
+      updateCodexConfig(config: GatewayConfig["codex"]) {
+        updates.push({ ...config });
+      },
+    } as unknown as WebChatManager;
+    const initial = gatewayConfig([]);
+    initial.codex.fast = true;
+    const manager = new ChannelManager({
+      config: initial,
+      webChatManager,
+    });
+    const next = gatewayConfig([]);
+    next.codex.fast = false;
+
+    await manager.reloadConfig(next);
+
+    expect(updates.map((config) => config.fast)).toEqual([false]);
   });
 
   test("routes runtime operations to a selected channel", async () => {
@@ -173,7 +196,10 @@ describe("Channel manager", () => {
       errors: [],
     });
     expect(events).toEqual(["start:old", "stop:old", "start:new"]);
-    expect(manager.getStatus().channels.map((item) => item.id)).toEqual(["feishu:new"]);
+    expect(manager.getStatus().channels.map((item) => item.id)).toEqual([
+      "web-chat",
+      "feishu:new",
+    ]);
   });
 
   test("过程回复和运行参数原地更新，凭据变化只重建对应频道", async () => {
@@ -299,9 +325,9 @@ describe("Channel manager", () => {
     expect(result.errors).toEqual([
       { channelId: "feishu:primary", error: "连接失败" },
     ]);
-    expect(manager.getStatus().channels).toEqual([
-      { id: "feishu:primary", status: "connected" },
-    ]);
+    expect(
+      manager.getStatus().channels.find((channel) => channel.id === "feishu:primary")
+    ).toEqual({ id: "feishu:primary", status: "connected" });
     expect(events).toEqual([
       "start:secret",
       "stop:secret",
@@ -328,8 +354,12 @@ function account(id: string): FeishuAccountConfig {
 function gatewayConfig(accounts: FeishuAccountConfig[]): GatewayConfig {
   return {
     service: {
+      host: "127.0.0.1",
       port: 18788,
       cwd: "/tmp/work",
+    },
+    webChat: {
+      registrationEnabled: false,
     },
     codex: {
       command: "codex",

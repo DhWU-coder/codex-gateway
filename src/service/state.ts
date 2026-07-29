@@ -8,6 +8,7 @@ export interface ServiceState {
   host: string;
   port: number;
   webUrl: string;
+  chatUrls?: string[];
   logPath: string;
   cwd: string;
   channels: Record<string, unknown>;

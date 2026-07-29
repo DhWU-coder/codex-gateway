@@ -1,6 +1,6 @@
 # Codex Gateway
 
-把飞书机器人 WebSocket 消息转发到本机 Codex CLI 的独立网关。
+把飞书机器人和多用户 Web Chat 消息转发到本机 Codex CLI 的独立网关。
 
 ## 安装
 
@@ -32,7 +32,7 @@ codex-gateway start
 codex-gateway status
 ```
 
-`run` 和 `start` 都会后台启动服务；`restart`、`stop`、`status` 用于管理后台进程。启动成功后终端会打印 Web UI 地址，默认是 `http://127.0.0.1:18788/`。
+`run` 和 `start` 都会后台启动服务；`restart`、`stop`、`status` 用于管理后台进程。启动成功后终端会打印本机管理地址；开放局域网 Chat 时还会打印可访问的 Chat 地址。默认管理地址是 `http://127.0.0.1:18788/`。
 
 ## 工作方式
 
@@ -71,14 +71,62 @@ Codex 需要回传生成文件时，会在最终回复中单独输出：
 
 文件不存在、越过工作目录或不符合大小限制时，机器人会在原消息下回复具体的回传失败原因。
 
+## 局域网 Web Chat
+
+Web Chat 默认不对局域网开放。需要使用时，在项目根目录的 `config.yaml` 中显式修改 `service.host`：
+
+```yaml
+service:
+  host: 0.0.0.0
+  port: 18788
+```
+
+然后继续使用 Gateway CLI 重启和查看地址：
+
+```bash
+codex-gateway restart
+codex-gateway status
+```
+
+默认由管理员在本机打开 `http://127.0.0.1:18788/`，进入“频道 > Web Chat”创建用户名和密码，并设置用户默认模型、Effort 和 Fast。需要允许局域网用户自助注册时，再显式开启：
+
+```yaml
+webChat:
+  registrationEnabled: true
+```
+
+开放注册默认关闭。开启后，`/chat` 登录卡片会显示“登录 / 注册”切换，用户使用用户名和 8-256 位密码注册，注册成功后自动登录；新用户默认启用，模型、Effort 和 Fast 继承全局配置。每个真实客户端 IP 每小时最多尝试注册 5 次，成功、重名和输入校验失败均计数，登录限流不受影响。该开关支持配置热更新。
+
+本机管理员始终可以在“频道 > Web Chat”中创建、停用、重置密码或删除用户。远程浏览器不能访问用户管理接口。
+
+Web Chat 登录 Session 会保存到 `~/.codex-gateway/web-chat/auth-sessions.json`，重启服务后保持登录。文件只保存 Session Token 的 SHA-256 哈希，不保存浏览器 Cookie 中的原始 Token；退出登录只撤销当前浏览器，修改密码、管理员重置密码、停用或删除用户会撤销该用户的全部登录。Chat API 返回 `401` 时，页面会清空旧身份和对话缓存并自动返回登录页。
+
+局域网用户访问启动输出中的 `http://<局域网 IP>:18788/chat`，登录后可以：
+
+- 新建、重命名、删除和 Fork Session；桌面端可右键打开会话菜单，移动端可点击省略号或长按；
+- 在输入框的模型菜单中切换当前 Session 的模型、Effort 和速度，新 Session 自动继承用户默认值；
+- 输入 `/` 打开命令面板，使用 `/model`、`/effort`、`/fast`、`/goal`、`/plan`、`/new`、`/clear`、`/fork`、`/stop`、`/compact`、`/review`、`/permissions`、`/status` 和 `/help`；
+- 输入 `@` 引用工作区文件或文件夹，以及当前启用的 Skill、插件、应用；也可以选择、拖拽或粘贴附件；
+- 运行期间按时间顺序查看中间回复和工具调用；任务结束后过程自动折叠，最终回复保持展开；
+- 上传文件、下载 Codex 生成的文件，并在历史消息中保留附件和引用；
+- 停止当前任务，并在断线重连后恢复 Session 与消息。
+
+Web Chat 由 Gateway 进程内一个长驻的 `codex app-server --stdio` 后端处理，复用同一协议连接管理 Thread、Turn、模型目录、命令、引用和实时过程；Gateway 重启后会根据已保存的 Thread ID 恢复会话。飞书频道仍使用 `codex exec --json`，不受 Web Chat 后端切换影响。
+
+所有 Web Chat 用户共享主机当前 Codex 登录和模型额度，但用户记录、Session、文件和工作目录按不可变用户 ID 隔离。Web Chat 强制使用 `workspace-write`，不继承飞书的 `danger-full-access` 或全局 `extraArgs`；联网与实时搜索能力沿用 Gateway 的 Codex 配置。同一 Session 的消息按顺序执行，不同 Session 可以并发，Gateway 不设置应用层并发上限，实际上限取决于主机资源和 Codex 服务。
+
+管理页面、管理 API、完整工具事件、标准输出和标准错误始终只允许本机 loopback 地址访问；Gateway 不信任 `X-Forwarded-For`。远程 Chat 只会收到自己的聊天文本、文件和简化错误。直接使用局域网 IP 的 HTTP 连接没有传输加密，只应在可信局域网或受保护的 VPN 内使用。
+
+开放注册会允许所有能够访问 Chat 地址的人创建账号，因此只应在可信网络中启用；不需要自助注册时应保持 `webChat.registrationEnabled: false`。
+
 ## Web UI
 
-Web UI 仅监听本机 `127.0.0.1`，默认地址是 `http://127.0.0.1:18788/`，包含：
+管理 Web UI 默认地址是 `http://127.0.0.1:18788/`。即使 `service.host` 设置为 `0.0.0.0`，管理页面和管理 API 仍只允许本机访问；远程仅开放 `/chat` 及其登录后 Chat API。管理 Web UI 包含：
 
 - **概览**：服务 PID、启动时间、端口、频道连接状态、活跃会话和最近配置热更新结果。
 - **用量**：读取项目 `.codex-usage/usage.jsonl`，按今日、本周、本月、最近天数或自定义日期统计 Token、模型和工作目录分布。
 - **配置**：查看当前项目配置路径、服务参数和 Codex 参数，并编辑全局模型、Effort、Fast 和 Verbosity；Secret 不会出现在通用配置接口中。
-- **频道**：添加、编辑或删除飞书账号，脱敏显示 App Secret，执行无消息连接测试，并管理账号启用状态、模型、Effort、Fast、Verbosity、实时过程回复和账户专属指令。
+- **频道**：管理飞书账号和 Web Chat 用户；支持连接测试、启停、模型、Effort、Fast、Verbosity、飞书实时过程回复和账户专属指令。
 - **会话**：从账号卡片打开实时过程抽屉，查看消息、附件、Codex 工具事件、历史归档、AI 总结与强制刷新。
 - **日志**：增量查看、搜索、按级别筛选、暂停、复制或下载后台服务日志。
 - **服务操作**：使用当前项目的 `config.yaml` 重启服务，或停止后台服务。
@@ -105,6 +153,25 @@ codex-gateway stop
 ## 配置
 
 默认读取项目根目录下的 `config.yaml`。参考 [config-example.yaml](config-example.yaml)。
+
+服务监听地址默认只绑定 loopback：
+
+```yaml
+service:
+  host: 127.0.0.1
+  port: 18788
+```
+
+只有显式改为 `host: 0.0.0.0` 才会接受局域网连接，并且仍只向远程地址开放 Web Chat。
+
+Web Chat 开放注册默认关闭：
+
+```yaml
+webChat:
+  registrationEnabled: false
+```
+
+设置为 `true` 后允许能够访问 `/chat` 的用户自助注册，注册成功自动登录；本机管理页面仍可管理所有用户。
 
 飞书 headless 任务默认使用完全权限模式，不等待交互审批，并允许 Codex 执行联网命令和实时 Web Search：
 

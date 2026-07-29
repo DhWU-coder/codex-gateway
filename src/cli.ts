@@ -49,8 +49,12 @@ export function createExampleConfig(): string {
 # 默认实际配置文件是项目根目录下的 config.yaml
 
 service:
+  host: 127.0.0.1
   port: 18788
   cwd: ~/.codex-gateway/workspace
+
+webChat:
+  registrationEnabled: false
 
 codex:
   command: codex

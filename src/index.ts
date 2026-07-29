@@ -12,6 +12,12 @@ import {
   stopServiceCommand,
 } from "./service/commands.js";
 import { startServiceDaemon } from "./service/daemon.js";
+import { CodexAppServerClient } from "./codex/app-server-client.js";
+import { CodexAppServerRuntime } from "./codex/app-server-runtime.js";
+import {
+  inspectCodexAppServer,
+  renderCodexAppServerDoctorReport,
+} from "./doctor.js";
 
 export async function main(argv: string[]): Promise<void> {
   const args = parseCliArgs(argv);
@@ -73,6 +79,18 @@ async function runDoctor(configPath: string | undefined): Promise<void> {
     ? `不可用：${result.error.message}`
     : (result.stdout || result.stderr || "").trim();
   console.log(`Codex CLI：${version || "未知"}`);
+  const profile = config.codex.profile?.trim();
+  const client = new CodexAppServerClient({
+    command,
+    args: [...(profile ? ["--profile", profile] : []), "app-server", "--stdio"],
+    cwd: config.service.cwd,
+    requestTimeoutMs: 10_000,
+  });
+  const report = await inspectCodexAppServer(
+    new CodexAppServerRuntime(client),
+    config.service.cwd
+  );
+  for (const line of renderCodexAppServerDoctorReport(report)) console.log(line);
   console.log(`飞书账号数：${config.channels.feishu.accounts.length}`);
   console.log(`启用账号数：${config.channels.feishu.accounts.filter((account) => account.enabled).length}`);
 }

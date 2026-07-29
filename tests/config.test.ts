@@ -2,6 +2,31 @@ import { describe, expect, test } from "bun:test";
 import { loadGatewayConfigFromObject } from "../src/config.js";
 
 describe("gateway config", () => {
+  test("defaults the service host to loopback and accepts an explicit LAN listener", () => {
+    expect(
+      loadGatewayConfigFromObject({}, { homeDir: "/Users/tester", env: {} }).service.host
+    ).toBe("127.0.0.1");
+    expect(
+      loadGatewayConfigFromObject(
+        { service: { host: "0.0.0.0" } },
+        { homeDir: "/Users/tester", env: {} }
+      ).service.host
+    ).toBe("0.0.0.0");
+  });
+
+  test("defaults Web Chat registration to disabled and accepts an explicit enable", () => {
+    expect(
+      loadGatewayConfigFromObject({}, { homeDir: "/Users/tester", env: {} }).webChat
+        .registrationEnabled
+    ).toBe(false);
+    expect(
+      loadGatewayConfigFromObject(
+        { webChat: { registrationEnabled: true } },
+        { homeDir: "/Users/tester", env: {} }
+      ).webChat.registrationEnabled
+    ).toBe(true);
+  });
+
   test("defaults Codex headless runs to full access and live search", () => {
     const config = loadGatewayConfigFromObject({}, { homeDir: "/Users/tester", env: {} });
 

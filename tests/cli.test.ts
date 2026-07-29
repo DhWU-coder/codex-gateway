@@ -25,7 +25,9 @@ describe("CLI helpers", () => {
     expect(config).toContain("channels:");
     expect(config).toContain("feishu:");
     expect(config).toContain("codex:");
+    expect(config).toContain("host: 127.0.0.1");
     expect(config).toContain("port: 18788");
+    expect(config).toContain("registrationEnabled: false");
     expect(config).toContain("appId: cli_xxx");
     expect(config).toContain("messageDedupeTtlMs: 600000");
     expect(config).toContain("history:");

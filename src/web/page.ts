@@ -351,12 +351,19 @@ export function renderAdminPage(): string {
           <div class="surface-head"><h2>频道</h2><button id="channelsRefresh" type="button">刷新</button></div>
           <div class="surface-body list" id="channelOverviewList"></div>
         </section>
-        <section class="surface">
+        <section class="surface" id="feishuChannelSurface">
           <div class="surface-head">
             <div><h2>飞书</h2><div class="source" id="feishuSessionCount">0 个会话</div></div>
             <div class="section-actions"><button id="editAllAccounts" type="button">编辑全部</button><button id="cancelAllAccounts" type="button" hidden>取消</button><button id="saveAllAccounts" class="primary" type="button" hidden>保存全部</button><button id="addAccount" type="button">添加账号</button></div>
           </div>
           <div class="surface-body account-list" id="feishuAccountList"></div>
+        </section>
+        <section class="surface" id="webChatChannelSurface" hidden>
+          <div class="surface-head">
+            <div><h2>Web Chat</h2><div class="source" id="webChatSessionCount">0 个会话</div></div>
+            <div class="section-actions"><button id="testWebChatConnection" type="button">连接测试</button><button id="addWebChatUser" type="button">添加用户</button></div>
+          </div>
+          <div class="surface-body account-list" id="webChatUserList"></div>
         </section>
       </div>
     </section>
@@ -428,10 +435,14 @@ export function renderAdminPage(): string {
       codexRuntimeDefaults: { fast: false, verbosity: "medium" },
       modelCatalogError: "",
       accounts: { accounts: [] },
+      webChatUsers: { users: [] },
+      selectedChannelKind: "feishu",
       instructionsChannelId: null,
       instructionsAccountId: null,
       editingAccounts: new Set(),
       newAccounts: new Set(),
+      editingWebChatUsers: new Set(),
+      newWebChatUsers: new Set(),
       connectionTests: new Map(),
       usagePreset: "all",
       usageRequest: 0,
@@ -533,6 +544,7 @@ export function renderAdminPage(): string {
       view.overview = overview;
       renderOverview();
       if (!view.editingAccounts.size) renderAccounts();
+      if (!view.editingWebChatUsers.size) renderWebChatUsers();
     }
     function renderOverview() {
       const state = view.overview && view.overview.state ? view.overview.state : {};
@@ -579,20 +591,54 @@ export function renderAdminPage(): string {
     }
     function renderChannelOverview() {
       const channels = currentChannels();
-      const sessions = allSessions();
+      const feishuChannels = channels.filter((channel) => channel.id === "feishu" || channel.id.startsWith("feishu:"));
+      const feishuSessions = feishuChannels.flatMap((channel) => channel.recentSessions || []);
       const configured = view.accounts.accounts.length;
       const enabled = view.accounts.accounts.filter((account) => account.enabled !== false).length;
-      const active = channels.reduce((total, channel) => total + Number(channel.activeSessions || 0), 0);
+      const active = feishuChannels.reduce((total, channel) => total + Number(channel.activeSessions || 0), 0);
+      const webChat = channels.find((channel) => channel.id === "web-chat");
+      const webUsers = view.webChatUsers.users || [];
+      const webSessions = webChat && webChat.recentSessions ? webChat.recentSessions : [];
       const list = byId("channelOverviewList");
       list.replaceChildren();
-      const button = make("button", "channel-card active");
+      list.append(
+        createChannelCard("feishu", "飞书", [
+          "配置 " + configured,
+          "启用 " + enabled,
+          "会话 " + feishuSessions.length,
+          "处理中 " + active
+        ]),
+        createChannelCard("web-chat", "Web Chat", [
+          "用户 " + webUsers.length,
+          "启用 " + webUsers.filter((user) => user.enabled !== false).length,
+          "会话 " + Number(webChat && webChat.sessionCount || webSessions.length),
+          "处理中 " + Number(webChat && webChat.activeSessions || 0)
+        ])
+      );
+      byId("feishuSessionCount").textContent = feishuSessions.length + " 个会话";
+      byId("webChatSessionCount").textContent = Number(webChat && webChat.sessionCount || webSessions.length) + " 个会话";
+      selectChannelKind(view.selectedChannelKind, false);
+    }
+    function createChannelCard(kind, title, metrics) {
+      const button = make("button", "channel-card" + (view.selectedChannelKind === kind ? " active" : ""));
       button.type = "button";
-      button.append(make("strong", "", "飞书"));
+      button.dataset.channelKind = kind;
+      button.append(make("strong", "", title));
       const chips = make("div", "metric-chips");
-      ["配置 " + configured, "启用 " + enabled, "会话 " + sessions.length, "处理中 " + active].forEach((text) => chips.append(make("span", "metric-chip", text)));
+      metrics.forEach((text) => chips.append(make("span", "metric-chip", text)));
       button.append(chips);
-      list.append(button);
-      byId("feishuSessionCount").textContent = sessions.length + " 个会话";
+      button.addEventListener("click", () => selectChannelKind(kind));
+      return button;
+    }
+    function selectChannelKind(kind, rerender = true) {
+      view.selectedChannelKind = kind === "web-chat" ? "web-chat" : "feishu";
+      byId("feishuChannelSurface").hidden = view.selectedChannelKind !== "feishu";
+      byId("webChatChannelSurface").hidden = view.selectedChannelKind !== "web-chat";
+      document.querySelectorAll("[data-channel-kind]").forEach((button) => button.classList.toggle("active", button.dataset.channelKind === view.selectedChannelKind));
+      if (rerender) {
+        if (view.selectedChannelKind === "web-chat") renderWebChatUsers();
+        else renderAccounts();
+      }
     }
     async function loadPublicConfig() {
       view.publicConfig = await api("/api/config");
@@ -611,11 +657,13 @@ export function renderAdminPage(): string {
       }
       if (view.publicConfig && !view.editingCodexModel) renderPublicConfig();
       if (!view.editingAccounts.size) renderAccounts();
+      if (!view.editingWebChatUsers.size) renderWebChatUsers();
     }
     function renderPublicConfig() {
       if (!view.publicConfig) return;
       renderDefinitions(byId("serviceConfig"), [
         ["配置文件", view.publicConfig.configPath],
+        ["监听地址", view.publicConfig.service.host],
         ["监听端口", view.publicConfig.service.port],
         ["工作目录", view.publicConfig.service.cwd]
       ]);
@@ -737,6 +785,235 @@ export function renderAdminPage(): string {
       view.newAccounts.clear();
       renderAccounts();
       renderChannelOverview();
+    }
+    async function loadWebChatUsers() {
+      view.webChatUsers = await api("/api/web-chat/users");
+      view.editingWebChatUsers.clear();
+      view.newWebChatUsers.clear();
+      renderWebChatUsers();
+      renderChannelOverview();
+    }
+    function webChatChannel() {
+      return currentChannels().find((channel) => channel.id === "web-chat") || null;
+    }
+    function webChatAccount(userId) {
+      const channel = webChatChannel();
+      return channel && Array.isArray(channel.accounts)
+        ? channel.accounts.find((account) => account.id === userId || account.accountId === userId) || null
+        : null;
+    }
+    function renderWebChatUsers() {
+      const target = byId("webChatUserList");
+      if (!target) return;
+      target.replaceChildren();
+      const users = view.webChatUsers.users || [];
+      if (!users.length) {
+        target.append(make("div", "empty", "暂无 Web Chat 用户"));
+        return;
+      }
+      users.forEach((user, index) => target.append(createWebChatUserCard(user, index)));
+    }
+    function createWebChatUserCard(user, index) {
+      const editing = view.editingWebChatUsers.has(index);
+      const isNew = view.newWebChatUsers.has(index);
+      const channelAccount = webChatAccount(user.id);
+      const sessions = channelAccount && channelAccount.recentSessions ? channelAccount.recentSessions : [];
+      const card = make("div", "account-card");
+      card.dataset.webChatUserIndex = String(index);
+      const head = make("div", "account-head");
+      const title = make("div", "account-title");
+      const globalCodex = view.publicConfig && view.publicConfig.codex ? view.publicConfig.codex : {};
+      const inheritedModel = globalCodex.model || defaultModelName() || "";
+      const effectiveModel = user.model || inheritedModel || "默认模型";
+      title.append(
+        make("strong", "", user.username || "新用户"),
+        make("span", "source", (user.enabled === false ? "disabled" : "enabled") + " · " + (user.model ? effectiveModel : effectiveModel + "（继承）") + " · " + (user.workspacePath || "保存后创建工作目录"))
+      );
+      const actions = make("div", "account-actions");
+      if (editing) {
+        actions.append(
+          accountButton("取消", () => cancelWebChatUser(index)),
+          accountButton("保存", () => saveWebChatUser(index), "primary")
+        );
+        if (!isNew) actions.append(accountButton("删除", () => removeWebChatUser(index), "danger"));
+      } else {
+        actions.append(
+          accountButton("重置密码", () => resetWebChatPassword(user)),
+          accountButton("编辑", () => editWebChatUser(index)),
+          accountButton("删除", () => removeWebChatUser(index), "danger"),
+          accountButton("彻底删除", () => purgeWebChatUser(index), "danger")
+        );
+      }
+      head.append(title, actions);
+
+      const fields = make("div", "account-fields");
+      const runtimeModel = user.model || inheritedModel;
+      const effectiveTuning = {
+        reasoningEffort: user.reasoningEffort || globalCodex.reasoningEffort || "",
+        fast: typeof user.fast === "boolean" ? user.fast : typeof globalCodex.fast === "boolean" ? globalCodex.fast : null,
+        verbosity: user.verbosity || globalCodex.verbosity || ""
+      };
+      fields.append(
+        createField("用户名", "username", user.username || "", { disabled: !editing }),
+        createModelField("模型", "model", user.model || "", editing, (model) => syncRuntimeTuningControls(card, model || inheritedModel)),
+        createRuntimeTuningFields(runtimeModel, {
+          reasoningEffort: user.reasoningEffort || "",
+          fast: typeof user.fast === "boolean" ? user.fast : null,
+          verbosity: user.verbosity || ""
+        }, {
+          scope: "account",
+          editing,
+          effective: effectiveTuning
+        }),
+        isNew ? createWebChatPasswordField() : createField("密码", "passwordState", "使用“重置密码”单独修改", { readonly: true }),
+        createField("工作目录", "workspacePath", user.workspacePath || "", { readonly: true }),
+        createField("会话目录", "sessionsPath", user.sessionsPath || "", { readonly: true }),
+        createField("最近登录", "lastLoginAt", formatTime(user.lastLoginAt), { readonly: true })
+      );
+      const flags = make("div", "flags");
+      flags.append(createCheckbox("启用", "enabled", user.enabled !== false, !editing));
+      const sessionSection = make("div", "session-list");
+      sessionSection.append(make("div", "source", Number(channelAccount && channelAccount.sessionCount || sessions.length) + " 个会话"));
+      if (!sessions.length) sessionSection.append(make("div", "empty", "暂无实时会话"));
+      sessions.forEach((session) => sessionSection.append(createSessionRow("web-chat", session)));
+      card.append(head, fields, flags, sessionSection);
+      return card;
+    }
+    function createWebChatPasswordField() {
+      const label = make("label", "field");
+      label.append(make("span", "", "初始密码"));
+      const input = document.createElement("input");
+      input.type = "password";
+      input.autocomplete = "new-password";
+      input.dataset.field = "password";
+      input.placeholder = "至少 8 个字符";
+      label.append(input);
+      return label;
+    }
+    function editWebChatUser(index) {
+      view.editingWebChatUsers.add(index);
+      renderWebChatUsers();
+    }
+    function cancelWebChatUser(index) {
+      if (view.newWebChatUsers.has(index)) {
+        view.webChatUsers.users.splice(index, 1);
+        view.newWebChatUsers.delete(index);
+        view.editingWebChatUsers.delete(index);
+        shiftWebChatUserIndexes(index);
+        renderWebChatUsers();
+        return;
+      }
+      loadWebChatUsers().catch(showError);
+    }
+    function shiftWebChatUserIndexes(removed) {
+      view.editingWebChatUsers = new Set(Array.from(view.editingWebChatUsers).filter((index) => index !== removed).map((index) => index > removed ? index - 1 : index));
+      view.newWebChatUsers = new Set(Array.from(view.newWebChatUsers).filter((index) => index !== removed).map((index) => index > removed ? index - 1 : index));
+    }
+    function addWebChatUser() {
+      const index = view.webChatUsers.users.length;
+      view.webChatUsers.users.push({
+        id: "",
+        username: "",
+        enabled: true,
+        model: "",
+        reasoningEffort: "",
+        fast: null,
+        verbosity: "",
+        workspacePath: "",
+        sessionsPath: ""
+      });
+      view.editingWebChatUsers.add(index);
+      view.newWebChatUsers.add(index);
+      view.selectedChannelKind = "web-chat";
+      renderWebChatUsers();
+      renderChannelOverview();
+    }
+    function collectWebChatUserCard(card) {
+      const values = {};
+      card.querySelectorAll("[data-field]").forEach((field) => {
+        const key = field.dataset.field;
+        if (key === "fast") values.fast = parseFastValue(field.value);
+        else values[key] = field.type === "checkbox" ? field.checked : field.value;
+      });
+      return values;
+    }
+    async function saveWebChatUser(index) {
+      const user = view.webChatUsers.users[index];
+      const card = byId("webChatUserList").querySelector('[data-web-chat-user-index="' + index + '"]');
+      if (!user || !card) return;
+      const values = collectWebChatUserCard(card);
+      const payload = {
+        username: values.username,
+        model: values.model || null,
+        reasoningEffort: values.reasoningEffort || null,
+        fast: values.fast,
+        verbosity: values.verbosity || null
+      };
+      if (view.newWebChatUsers.has(index)) {
+        const created = await api("/api/web-chat/users", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...payload, password: values.password })
+        });
+        if (values.enabled === false) {
+          await api("/api/web-chat/users/" + encodeURIComponent(created.user.id), {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ enabled: false })
+          });
+        }
+        setStatus("Web Chat 用户已创建");
+      } else {
+        await api("/api/web-chat/users/" + encodeURIComponent(user.id), {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...payload, enabled: values.enabled !== false })
+        });
+        setStatus("Web Chat 用户配置已保存");
+      }
+      await Promise.all([loadWebChatUsers(), loadOverview()]);
+    }
+    async function resetWebChatPassword(user) {
+      const password = prompt("为 " + user.username + " 设置新密码（至少 8 个字符）：");
+      if (password === null) return;
+      await api("/api/web-chat/users/" + encodeURIComponent(user.id) + "/password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password })
+      });
+      setStatus("密码已重置，该用户现有登录会话已失效");
+    }
+    async function removeWebChatUser(index) {
+      const user = view.webChatUsers.users[index];
+      if (!user || !confirm("确认删除 Web Chat 用户 " + user.username + "？用户工作目录和历史会保留。")) return;
+      await api("/api/web-chat/users/" + encodeURIComponent(user.id), {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ purge: false })
+      });
+      setStatus("Web Chat 用户已删除，用户数据目录已保留");
+      await Promise.all([loadWebChatUsers(), loadOverview()]);
+    }
+    async function purgeWebChatUser(index) {
+      const user = view.webChatUsers.users[index];
+      if (!user) return;
+      const confirmation = prompt("彻底删除会同时移除该用户的工作目录、文件和全部历史。请输入用户名 " + user.username + " 确认：");
+      if (confirmation === null) return;
+      if (confirmation !== user.username) {
+        setStatus("用户名不匹配，未执行彻底删除", true);
+        return;
+      }
+      await api("/api/web-chat/users/" + encodeURIComponent(user.id), {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ purge: true, confirmUsername: confirmation })
+      });
+      setStatus("Web Chat 用户及其全部数据已彻底删除");
+      await Promise.all([loadWebChatUsers(), loadOverview()]);
+    }
+    async function testWebChatConnection() {
+      const result = await api("/api/channels/web-chat/test", { method: "POST" });
+      setStatus(result.ok ? "Web Chat 连接测试成功 · " + Math.round(Number(result.latencyMs || 0)) + " ms" : "Web Chat 连接测试失败 · " + (result.error || "未知错误"), !result.ok);
     }
     function channelIdForAccount(accountId) {
       return !accountId || accountId === "default" ? "feishu" : "feishu:" + accountId;
@@ -1542,7 +1819,7 @@ export function renderAdminPage(): string {
       await loadOverview();
       if (view.activeTab === "usage") await loadUsage();
       if (view.activeTab === "config") await Promise.all([loadPublicConfig(), loadModelCatalog()]);
-      if (view.activeTab === "channels") await Promise.all([loadAccounts(), loadModelCatalog()]);
+      if (view.activeTab === "channels") await Promise.all([loadAccounts(), loadWebChatUsers(), loadModelCatalog()]);
       if (view.activeTab === "logs") await loadLogs(true);
     }
     async function refreshUsagePolling() {
@@ -1562,7 +1839,7 @@ export function renderAdminPage(): string {
     byId("restartService").addEventListener("click", () => restartService().catch(showError));
     byId("stopService").addEventListener("click", () => stopService().catch(showError));
     byId("openChannels").addEventListener("click", () => activateTab("channels"));
-    byId("channelsRefresh").addEventListener("click", () => Promise.all([loadOverview(), loadAccounts(), loadModelCatalog()]).catch(showError));
+    byId("channelsRefresh").addEventListener("click", () => Promise.all([loadOverview(), loadAccounts(), loadWebChatUsers(), loadModelCatalog()]).catch(showError));
     byId("editCodexModel").addEventListener("click", () => editCodexModel().catch(showError));
     byId("cancelCodexModel").addEventListener("click", cancelCodexModel);
     byId("saveCodexModel").addEventListener("click", () => saveCodexModel().catch(showError));
@@ -1570,6 +1847,8 @@ export function renderAdminPage(): string {
     byId("cancelAllAccounts").addEventListener("click", () => loadAccounts().catch(showError));
     byId("saveAllAccounts").addEventListener("click", () => saveAccounts().catch(showError));
     byId("addAccount").addEventListener("click", addAccount);
+    byId("addWebChatUser").addEventListener("click", addWebChatUser);
+    byId("testWebChatConnection").addEventListener("click", () => testWebChatConnection().catch(showError));
     byId("closeInstructions").addEventListener("click", closeInstructionsEditor);
     byId("cancelInstructions").addEventListener("click", closeInstructionsEditor);
     byId("reloadInstructions").addEventListener("click", () => reloadInstructionsEditor().catch(showError));
@@ -1598,7 +1877,7 @@ export function renderAdminPage(): string {
       const storedTab = localStorage.getItem(TAB_STORAGE_KEY);
       if (["overview", "usage", "config", "channels", "logs"].includes(storedTab)) activateTab(storedTab);
     } catch {}
-    Promise.all([loadOverview(), loadPublicConfig(), loadAccounts(), loadModelCatalog()]).catch(showError);
+    Promise.all([loadOverview(), loadPublicConfig(), loadAccounts(), loadWebChatUsers(), loadModelCatalog()]).catch(showError);
     if (view.activeTab === "usage") loadUsage().catch(showError);
     if (view.activeTab === "logs") loadLogs(true).catch(showError);
     setInterval(() => {

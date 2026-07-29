@@ -51,6 +51,8 @@ describe("web server", () => {
     expect(html).toContain('data-tab="channels"');
     expect(html).toContain('data-tab="logs"');
     expect(html).toContain('id="feishuAccountList"');
+    expect(html).toContain('id="webChatUserList"');
+    expect(html).toContain('id="addWebChatUser"');
     expect(html).toContain('id="sessionDrawer"');
     expect(html).toContain('id="instructionsDialog"');
     expect(html).toContain('id="instructionsPath"');
@@ -82,7 +84,14 @@ describe("web server", () => {
     expect(html).toContain("/api/usage");
     expect(html).toContain("/api/logs");
     expect(html).toContain("/api/service/restart");
-    expect(html).not.toContain("Web Chat");
+    expect(html).toContain("Web Chat");
+    expect(html).toContain("/api/web-chat/users");
+    expect(html).toContain("createWebChatUserCard");
+    expect(html).toContain("resetWebChatPassword");
+    expect(html).toContain("removeWebChatUser");
+    expect(html).toContain("purgeWebChatUser");
+    expect(html).toContain('["监听地址", view.publicConfig.service.host]');
+    expect(html).toContain('createSessionRow("web-chat", session)');
     expect(html).toContain('id="themeToggle"');
     expect(html).toContain('aria-label="切换到深色主题"');
     expect(html).toContain(':root[data-theme="dark"]');
@@ -139,6 +148,30 @@ describe("web server", () => {
       { documentElement: systemRoot }
     );
     expect(systemRoot.dataset.theme).toBe("dark");
+  });
+
+  test("redirects remote root requests to chat and blocks remote admin APIs", async () => {
+    const options = {
+      stateProvider: () => null,
+      channelStatusProvider: () => ({ channels: [] }),
+    };
+    const remote = { remoteAddress: "192.168.1.8" };
+    const redirect = await handleWebRequest(
+      new Request("http://192.168.1.2/"),
+      options,
+      remote
+    );
+    const blocked = await handleWebRequest(
+      new Request("http://192.168.1.2/api/config", {
+        headers: { "x-forwarded-for": "127.0.0.1" },
+      }),
+      options,
+      remote
+    );
+
+    expect(redirect.status).toBe(302);
+    expect(redirect.headers.get("location")).toBe("/chat");
+    expect(blocked.status).toBe(403);
   });
 
   test("删除账号时先刷新表单再保存剩余账号", async () => {

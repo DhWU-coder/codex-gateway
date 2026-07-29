@@ -15,10 +15,13 @@ export function resolvePreferredServicePort(env: NodeJS.ProcessEnv = process.env
   return port;
 }
 
-export async function findServicePort(preferredPort: number): Promise<ServicePortResult> {
-  if (await isPortAvailable(preferredPort)) return { port: preferredPort };
+export async function findServicePort(
+  preferredPort: number,
+  host = "127.0.0.1"
+): Promise<ServicePortResult> {
+  if (await isPortAvailable(preferredPort, host)) return { port: preferredPort };
   for (let port = preferredPort + 1; port <= 65535; port += 1) {
-    if (await isPortAvailable(port)) {
+    if (await isPortAvailable(port, host)) {
       return {
         port,
         warning: `Warning: service port ${preferredPort} is unavailable, using ${port} instead.`,
@@ -28,13 +31,13 @@ export async function findServicePort(preferredPort: number): Promise<ServicePor
   throw new Error(`No available service ports found after ${preferredPort}`);
 }
 
-function isPortAvailable(port: number): Promise<boolean> {
+function isPortAvailable(port: number, host: string): Promise<boolean> {
   return new Promise((resolve) => {
     const server = createServer();
     server.once("error", () => resolve(false));
     server.once("listening", () => {
       server.close(() => resolve(true));
     });
-    server.listen(port, "127.0.0.1");
+    server.listen(port, host);
   });
 }

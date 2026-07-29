@@ -7,7 +7,13 @@ export interface ParsedCodexJsonEvents {
 }
 
 export type CodexProgressEvent =
-  | { type: "assistant_text"; text: string }
+  | {
+      type: "assistant_text";
+      text: string;
+      phase?: "commentary" | "final_answer";
+    }
+  | { type: "reasoning"; text: string }
+  | { type: "plan"; text: string; steps?: unknown[] }
   | { type: "tool_start"; name: string; input?: unknown; toolUseId?: string }
   | {
       type: "tool_result";
@@ -15,7 +21,11 @@ export type CodexProgressEvent =
       text: string;
       isError?: boolean;
       toolUseId?: string;
+      durationMs?: number;
     }
+  | { type: "file_change"; changes: unknown[]; toolUseId?: string }
+  | { type: "web_search"; query?: string; toolUseId?: string }
+  | { type: "context_compaction"; text?: string }
   | { type: "stderr"; text: string };
 
 export interface CodexUsage {

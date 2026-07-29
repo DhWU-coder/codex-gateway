@@ -12,12 +12,17 @@ import {
 } from "../codex/model-catalog.js";
 import { loadGatewayConfig, type GatewayConfig } from "../config.js";
 import { startWebServer } from "../web-server.js";
+import { listLanIpv4Addresses, resolveServiceUrls } from "./addresses.js";
 import { getServiceLogPath } from "./paths.js";
 import {
   spawnDetachedServiceRestart,
   type SpawnRestartOptions,
 } from "./process.js";
 import { type ServiceState, removeServiceState, writeServiceState } from "./state.js";
+import { WebChatManager } from "../web-chat/manager.js";
+import { WebChatAuthService } from "../web-chat/auth.js";
+import { CodexAppServerClient } from "../codex/app-server-client.js";
+import { CodexAppServerRuntime } from "../codex/app-server-runtime.js";
 
 export interface StartServiceDaemonOptions {
   port: number;
@@ -81,12 +86,40 @@ export async function startServiceDaemon(
     profile: config.codex.profile,
   });
   const modelCatalogProvider = () => modelCatalog.list();
-  const channelDependencies: ChannelManagerDependencies = { modelCatalogProvider };
+  const appServerClient = new CodexAppServerClient({
+    command: config.codex.command,
+    cwd,
+    onStderr: (text) => {
+      console.warn(
+        `[codex-gateway] App Server：${sanitizeServiceDiagnostic(text).slice(0, 1_000)}`
+      );
+    },
+  });
+  const appServerRuntime = new CodexAppServerRuntime(appServerClient);
+  const webChatManager = new WebChatManager({
+    projectRoot,
+    codex: config.codex,
+    modelCatalogProvider,
+    appServerRuntime,
+  });
+  const webChatAuth = new WebChatAuthService({
+    userStore: webChatManager.userStore,
+  });
+  const channelDependencies: ChannelManagerDependencies = {
+    modelCatalogProvider,
+    webChatManager,
+  };
   const channelManager =
     options.createChannelManager?.(config, channelDependencies) ??
-    new ChannelManager({ config, projectRoot, modelCatalogProvider });
+    new ChannelManager({
+      config,
+      projectRoot,
+      modelCatalogProvider,
+      webChatManager,
+    });
   await channelManager.start();
 
+  let webChatRegistrationEnabled = config.webChat.registrationEnabled;
   let configReloadState: ConfigReloadState = { status: "idle" };
   const configWatcher =
     !options.config && configPath
@@ -95,6 +128,7 @@ export async function startServiceDaemon(
           onChange: async () => {
             try {
               const nextConfig = loadGatewayConfig({ configPath });
+              webChatRegistrationEnabled = nextConfig.webChat.registrationEnabled;
               const result = await channelManager.reloadConfig(nextConfig);
               const updatedAt = new Date().toISOString();
               configReloadState = result.errors.length
@@ -124,18 +158,22 @@ export async function startServiceDaemon(
   const stop = async () => {
     if (stopped) return;
     stopped = true;
+    console.info("[codex-gateway] 正在停止后台服务和 App Server。");
     configWatcher?.close();
     await channelManager.stop();
+    await appServerRuntime.stop();
     webServer.stop();
     removeServiceState();
   };
   const webServer = (options.startWebServer ?? startWebServer)({
+    hostname: config.service.host,
     port: options.port,
     stateProvider: () => state,
     channelStatusProvider: () => channelManager.getStatus(),
     channelManager,
     stopService: stop,
     restartService: () => {
+      console.info("[codex-gateway] 已请求后台服务重启。");
       (options.spawnServiceRestart ?? spawnDetachedServiceRestart)({
         cwd: projectRoot,
         configPath,
@@ -148,15 +186,20 @@ export async function startServiceDaemon(
     configReloadStateProvider: () => configReloadState,
     modelCatalogProvider,
     codexRuntimeDefaultsProvider: () => modelCatalog.runtimeDefaults(),
+    webChatManager,
+    webChatAuth,
+    webChatRegistrationEnabledProvider: () => webChatRegistrationEnabled,
   });
-  const host = "127.0.0.1";
+  const host = config.service.host;
   const boundPort = webServer.port ?? options.port;
+  const urls = resolveServiceUrls(host, boundPort, listLanIpv4Addresses());
   state = {
     pid: process.pid,
     startedAt: (options.now ?? (() => new Date()))().toISOString(),
     host,
     port: boundPort,
-    webUrl: `http://${host}:${boundPort}/`,
+    webUrl: urls.webUrl,
+    chatUrls: urls.chatUrls,
     logPath,
     cwd,
     channels: Object.fromEntries(
@@ -164,6 +207,9 @@ export async function startServiceDaemon(
     ),
   };
   writeServiceState(state);
+  console.info(
+    `[codex-gateway] 后台服务已启动：${state.webUrl}；App Server 将在首次 Web Chat 请求时连接。`
+  );
 
   process.once("SIGTERM", () => {
     stop().finally(() => process.exit(0));
@@ -202,4 +248,17 @@ export function watchGatewayConfig(
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+export function sanitizeServiceDiagnostic(value: string): string {
+  return value
+    .replace(
+      /\bAuthorization\s*:\s*Bearer\s+[^\s,;]+/gi,
+      "Authorization: Bearer [已隐藏]"
+    )
+    .replace(/\bCookie\s*[:=]\s*[^\s,;]+/gi, "Cookie=[已隐藏]")
+    .replace(
+      /\b(token|password|passwd|secret|appSecret|apiKey|accessKey|session)\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+      (_match, key: string) => `${key}=[已隐藏]`
+    );
 }

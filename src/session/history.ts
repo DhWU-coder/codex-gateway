@@ -45,9 +45,26 @@ export interface SessionMetadata {
 }
 
 export interface SessionMessage {
+  id?: string;
   role: "user" | "assistant";
   text: string;
   createdAt: string;
+  attachments?: SessionAttachment[];
+  references?: SessionReference[];
+}
+
+export interface SessionReference {
+  id: string;
+  name: string;
+  kind: "file" | "directory" | "skill" | "plugin" | "app";
+}
+
+export interface SessionAttachment {
+  id: string;
+  name: string;
+  kind: "upload" | "generated";
+  mimeType?: string;
+  size?: number;
 }
 
 export interface SessionSummary extends SessionMetadata {
@@ -99,6 +116,40 @@ export class SessionHistoryStore {
 
   createNewSession(conversationKey: string, input: SessionDefaults): SessionMetadata {
     const metadata = this.createMetadata(conversationKey, input);
+    this.write(metadata);
+    this.writeCurrentArchiveId(conversationKey, metadata.archiveId);
+    this.pruneArchives(conversationKey);
+    return metadata;
+  }
+
+  importMessages(
+    conversationKey: string,
+    input: SessionDefaults,
+    messages: SessionMessage[],
+    forkedFrom?: string
+  ): SessionMetadata {
+    const metadata = this.createMetadata(conversationKey, input);
+    const imported = messages
+      .filter(
+        (message) =>
+          (message.role === "user" || message.role === "assistant") &&
+          hasMessageContent(message)
+      )
+      .map((message) => ({ ...message }));
+    metadata.forkedFrom = forkedFrom;
+    metadata.messageCount = imported.length;
+    metadata.preview = buildPreview(imported);
+    metadata.lastActiveAt =
+      imported.at(-1)?.createdAt ?? metadata.lastActiveAt;
+    const messagesPath = this.messagesPath(conversationKey, metadata.archiveId);
+    mkdirSync(dirname(messagesPath), { recursive: true, mode: 0o700 });
+    writeFileSync(
+      messagesPath,
+      imported.length > 0
+        ? `${imported.map((message) => JSON.stringify(message)).join("\n")}\n`
+        : "",
+      { encoding: "utf-8", mode: 0o600 }
+    );
     this.write(metadata);
     this.writeCurrentArchiveId(conversationKey, metadata.archiveId);
     this.pruneArchives(conversationKey);
@@ -474,13 +525,22 @@ function readMessagesFile(path: string): SessionMessage[] {
     .flatMap((line) => {
       try {
         const parsed = JSON.parse(line) as SessionMessage;
-        return (parsed.role === "user" || parsed.role === "assistant") && parsed.text
+        return (parsed.role === "user" || parsed.role === "assistant") &&
+          hasMessageContent(parsed)
           ? [parsed]
           : [];
       } catch {
         return [];
       }
     });
+}
+
+function hasMessageContent(message: SessionMessage): boolean {
+  return (
+    typeof message.text === "string" &&
+    (Boolean(message.text) ||
+      (Array.isArray(message.attachments) && message.attachments.length > 0))
+  );
 }
 
 function buildPreview(messages: SessionMessage[]): string {

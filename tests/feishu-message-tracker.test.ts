@@ -80,7 +80,7 @@ describe("Feishu message tracker", () => {
     const event = tracker.list()[0]?.progressEvents?.[0];
 
     expect(event?.type).toBe("tool_result");
-    expect(event && "text" in event ? event.text.length : 0).toBeLessThanOrEqual(4003);
+    expect(event?.type === "tool_result" ? event.text.length : 0).toBeLessThanOrEqual(4003);
   });
 });
 

@@ -34,15 +34,34 @@ export interface CodexRunInput {
   signal?: AbortSignal;
   projectRoot?: string;
   onProgress?: (event: CodexProgressEvent) => void;
+  structuredInput?: CodexStructuredInput[];
+  additionalContext?: Record<
+    string,
+    { value: string; kind: "application" | "untrusted" }
+  >;
 }
 
 export interface CodexRunResult {
   text: string;
   sessionId?: string;
+  turnId?: string;
   rawOutput?: string;
 }
 
 export type CodexRunner = (input: CodexRunInput) => Promise<CodexRunResult>;
+
+export class CodexSessionResumeError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "CodexSessionResumeError";
+  }
+}
+
+export type CodexStructuredInput =
+  | { type: "text"; text: string }
+  | { type: "localImage"; path: string }
+  | { type: "mention"; name: string; path: string }
+  | { type: "skill"; name: string; path: string };
 
 export interface CodexCommand {
   command: string;

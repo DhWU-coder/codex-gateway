@@ -10,6 +10,8 @@ import type {
   ArchivedSessionDetail,
   SessionSummaryWithAi,
 } from "./session/router.js";
+import { WebChatChannel } from "./web-chat/channel.js";
+import { WebChatManager } from "./web-chat/manager.js";
 
 export interface ManagedChannel {
   id: string;
@@ -54,10 +56,13 @@ export interface ChannelManagerOptions {
     account: FeishuAccountConfig,
     dependencies?: ChannelManagerDependencies
   ) => ManagedChannel;
+  webChatManager?: WebChatManager;
+  createWebChatChannel?: (manager: WebChatManager) => ManagedChannel;
 }
 
 export interface ChannelManagerDependencies {
   modelCatalogProvider?: () => Promise<CodexModelOption[]>;
+  webChatManager?: WebChatManager;
 }
 
 export interface ChannelReloadResult {
@@ -74,12 +79,21 @@ export class ChannelManager {
   private readonly channels = new Map<string, ManagedChannel>();
   private readonly feishuConfigs = new Map<string, FeishuAccountConfig>();
   private readonly createFeishuChannel: (account: FeishuAccountConfig) => ManagedChannel;
+  readonly webChatManager: WebChatManager;
   private started = false;
 
   constructor(private readonly options: ChannelManagerOptions) {
     const customFactory = options.createFeishuChannel;
+    this.webChatManager =
+      options.webChatManager ??
+      new WebChatManager({
+        projectRoot: options.projectRoot ?? process.cwd(),
+        codex: options.config.codex,
+        modelCatalogProvider: options.modelCatalogProvider ?? (async () => []),
+      });
     const dependencies: ChannelManagerDependencies = {
       modelCatalogProvider: options.modelCatalogProvider,
+      webChatManager: this.webChatManager,
     };
     this.createFeishuChannel = customFactory
       ? (item) => customFactory(item, dependencies)
@@ -90,6 +104,13 @@ export class ChannelManager {
             options.projectRoot,
             options.modelCatalogProvider
           );
+    const webChatChannel =
+      options.createWebChatChannel?.(this.webChatManager) ??
+      new WebChatChannel({
+        manager: this.webChatManager,
+        modelCatalogProvider: options.modelCatalogProvider ?? (async () => []),
+      });
+    this.channels.set(webChatChannel.id, webChatChannel);
     for (const account of options.config.channels.feishu.accounts) {
       const channel = this.createFeishuChannel(account);
       this.channels.set(channel.id, channel);
@@ -145,6 +166,7 @@ export class ChannelManager {
 
   async reloadConfig(config: GatewayConfig): Promise<ChannelReloadResult> {
     const result = createReloadResult();
+    this.webChatManager.updateCodexConfig(config.codex);
     const nextConfigs = new Map<string, FeishuAccountConfig>();
     for (const account of config.channels.feishu.accounts) {
       nextConfigs.set(resolveFeishuChannelId(account.id), { ...account });
