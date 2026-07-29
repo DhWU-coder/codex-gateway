@@ -201,16 +201,22 @@ export function renderWebChatPage(options: WebChatPageOptions = {}): string {
           <div class="composer-popover palette" id="referencePalette" role="listbox" aria-label="引用" hidden></div>
           <div class="composer-popover runtime-menu" id="runtimeMenu" role="menu" aria-label="模型配置" hidden></div>
           <div class="composer">
-            <input id="fileInput" type="file" multiple hidden>
-            <button class="icon-button composer-add" id="fileButton" type="button" title="添加上下文" aria-label="添加上下文">${WEB_CHAT_ICONS.add}</button>
-            <textarea id="composerInput" rows="1" maxlength="100000" placeholder="输入消息，/ 使用命令，@ 引用上下文" aria-label="消息"></textarea>
-            <div class="composer-actions">
-              <button class="runtime-summary" id="runtimeSummaryButton" type="button" aria-haspopup="menu" aria-expanded="false">
-                ${WEB_CHAT_ICONS.settings}
-                <span id="runtimeSummaryText">读取配置</span>
-              </button>
-              <button class="danger-button composer-submit" id="stopButton" type="button" title="停止" aria-label="停止" hidden>${WEB_CHAT_ICONS.stop}</button>
-              <button class="primary-button composer-submit" id="sendButton" type="button" title="发送" aria-label="发送">${WEB_CHAT_ICONS.send}</button>
+            <div class="composer-editor">
+              <textarea id="composerInput" rows="1" maxlength="100000" placeholder="输入消息，/ 使用命令，@ 引用上下文" aria-label="消息"></textarea>
+            </div>
+            <div class="composer-toolbar">
+              <div class="composer-toolbar-start">
+                <input id="fileInput" type="file" multiple hidden>
+                <button class="icon-button composer-add" id="fileButton" type="button" title="添加上下文" aria-label="添加上下文">${WEB_CHAT_ICONS.add}</button>
+              </div>
+              <div class="composer-actions">
+                <button class="runtime-summary" id="runtimeSummaryButton" type="button" aria-haspopup="menu" aria-expanded="false">
+                  ${WEB_CHAT_ICONS.settings}
+                  <span id="runtimeSummaryText">读取配置</span>
+                </button>
+                <button class="danger-button composer-submit" id="stopButton" type="button" title="停止" aria-label="停止" hidden>${WEB_CHAT_ICONS.stop}</button>
+                <button class="primary-button composer-submit" id="sendButton" type="button" title="发送" aria-label="发送">${WEB_CHAT_ICONS.send}</button>
+              </div>
             </div>
           </div>
         </div>

@@ -16,6 +16,8 @@ export const WEB_CHAT_STYLES = `
   --focus: #2677d9;
   --code: #18212b;
   --code-text: #e8edf2;
+  --composer-submit-bg: #17202a;
+  --composer-submit-fg: #ffffff;
   --shadow: 0 14px 36px rgba(28, 39, 51, 0.14);
 }
 :root[data-theme="dark"] {
@@ -35,6 +37,8 @@ export const WEB_CHAT_STYLES = `
   --focus: #6aaeff;
   --code: #0c1014;
   --code-text: #e9eef2;
+  --composer-submit-bg: #f4f6f8;
+  --composer-submit-fg: #101417;
   --shadow: 0 16px 42px rgba(0, 0, 0, 0.36);
 }
 * { box-sizing: border-box; }
@@ -556,18 +560,40 @@ button { cursor: pointer; }
 .runtime-menu { width: min(430px, 100%); }
 .runtime-menu-head { display: flex; min-height: 36px; align-items: center; justify-content: space-between; padding: 2px 8px 7px; color: var(--muted); font-weight: 700; }
 .runtime-current { color: var(--muted); }
-.composer {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: end;
-  padding: 9px;
+.composer { display: flex; min-height: 116px; flex-direction: column;
+  gap: 10px;
+  padding: 16px 16px 12px;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: 20px;
   background: var(--surface);
-  box-shadow: var(--shadow);
+  box-shadow: 0 10px 28px rgba(20, 30, 40, .1);
+  transition: border-color .15s ease, box-shadow .15s ease;
 }
-.composer textarea { min-height: 42px; max-height: 160px; resize: none; padding: 9px 4px; border: 0; background: transparent; line-height: 1.5; }
+.composer:focus-within {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 20%, transparent), 0 12px 30px rgba(20, 30, 40, .12);
+}
+.composer-editor { display: flex; min-width: 0; flex: 1; }
+.composer textarea {
+  width: 100%;
+  min-height: 48px;
+  max-height: 180px;
+  resize: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  line-height: 1.55;
+}
+.composer textarea:focus-visible {
+  border-color: transparent;
+  box-shadow: none;
+}
+.composer-toolbar { display: flex; min-height: 44px; align-items: center; justify-content: space-between;
+  gap: 10px;
+}
+.composer-toolbar-start { display: flex; min-width: 0; align-items: center; }
+.composer-add { border-color: transparent; background: transparent; }
+.composer-add:hover { background: var(--surface-2); }
 .composer-actions { display: flex; align-items: center; gap: 6px; }
 .runtime-summary {
   min-height: 38px;
@@ -578,13 +604,18 @@ button { cursor: pointer; }
   padding: 0 10px;
   border: 0;
   border-radius: 6px;
-  background: var(--surface-2);
+  background: transparent;
   color: var(--muted);
   font-weight: 700;
 }
+.runtime-summary:hover { background: var(--surface-2); color: var(--text); }
 .runtime-summary span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-submit { width: 42px; height: 42px; min-height: 42px; display: grid; place-items: center; padding: 0; }
+.composer-submit { width: 44px; height: 44px; min-height: 44px; display: grid; place-items: center; flex: 0 0 auto; padding: 0; border-radius: 50%; }
 .composer-submit .button-icon { margin: 0; }
+#sendButton.composer-submit { border-color: var(--composer-submit-bg); background: var(--composer-submit-bg); color: var(--composer-submit-fg); }
+#sendButton.composer-submit:hover { filter: brightness(.92); }
+#sendButton.composer-submit:disabled { cursor: not-allowed; opacity: .42; }
+#stopButton.composer-submit { background: var(--danger-soft); }
 .error-toast {
   position: fixed;
   z-index: 100;
@@ -666,9 +697,11 @@ button { cursor: pointer; }
   .trace-card { margin-left: 39px; }
   .trace-body { padding-left: 14px; }
   .composer-shell { padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); }
-  .composer { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .composer { min-height: 104px; padding: 12px; border-radius: 16px; }
+  .composer textarea { min-height: 42px; }
+  .composer-toolbar { gap: 6px; }
   .composer-actions { gap: 4px; }
-  .runtime-summary { max-width: 128px; padding: 0 8px; }
+  .runtime-summary { max-width: min(190px, 52vw); padding: 0 8px; }
   .runtime-summary .button-icon { display: none; }
   .composer-popover { width: 100%; max-height: min(380px, calc(100vh - 160px)); }
   .latest-activity { width: 100%; justify-content: flex-start; }

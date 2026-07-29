@@ -220,7 +220,7 @@ describe("Web Chat 页面", () => {
       ".new-session { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }"
     );
     expect(html).toContain(
-      ".composer-submit { width: 42px; height: 42px; min-height: 42px; display: grid; place-items: center; padding: 0; }"
+      ".composer-submit { width: 44px; height: 44px; min-height: 44px; display: grid; place-items: center; flex: 0 0 auto; padding: 0; border-radius: 50%; }"
     );
     expect(html).toContain(
       ".composer-submit .button-icon { margin: 0; }"
@@ -237,6 +237,27 @@ describe("Web Chat 页面", () => {
       '<span id="runtimeSummaryText">模型默认</span>'
     );
     expect(html).not.toContain("\\u6A21\\u578B\\u9ED8\\u8BA4");
+  });
+
+  test("Composer 使用上下分层创作区并由外壳统一显示聚焦状态", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain('class="composer-editor"');
+    expect(html).toContain('class="composer-toolbar"');
+    expect(html).toContain('class="composer-toolbar-start"');
+    expect(html).toContain(
+      ".composer { display: flex; min-height: 116px; flex-direction: column;"
+    );
+    expect(html).toContain(".composer:focus-within");
+    expect(html).toContain(
+      ".composer-toolbar { display: flex; min-height: 44px; align-items: center; justify-content: space-between;"
+    );
+    expect(html).toContain(
+      "#sendButton.composer-submit { border-color: var(--composer-submit-bg); background: var(--composer-submit-bg); color: var(--composer-submit-fg); }"
+    );
+    expect(html).toContain(
+      ".composer { min-height: 104px; padding: 12px; border-radius: 16px; }"
+    );
   });
 
   test("Trace 按顺序渲染中间回复和折叠工具组，并显示最新活动", () => {
