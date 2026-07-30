@@ -11,9 +11,15 @@ import {
 
 describe("paths", () => {
   test("defaults config path to project config.yaml", () => {
-    expect(resolveDefaultConfigPath({ cwd: "/tmp/codex-gateway" })).toBe(
+    expect(resolveDefaultConfigPath({ projectRoot: "/tmp/codex-gateway" })).toBe(
       "/tmp/codex-gateway/config.yaml"
     );
+    expect(
+      resolveConfigPath(undefined, {
+        cwd: "/tmp/caller",
+        projectRoot: "/tmp/codex-gateway",
+      })
+    ).toBe("/tmp/codex-gateway/config.yaml");
   });
 
   test("resolves relative config override against the current project", () => {

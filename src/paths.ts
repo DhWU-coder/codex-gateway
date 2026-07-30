@@ -1,5 +1,8 @@
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const INSTALLED_PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export function expandHomePath(value: string | undefined, homeDir = homedir()): string | undefined {
   if (!value) return undefined;
@@ -15,17 +18,19 @@ export function resolveGatewayHome(input?: { env?: NodeJS.ProcessEnv; homeDir?: 
 }
 
 export function resolveDefaultConfigPath(input?: {
-  cwd?: string;
+  projectRoot?: string;
 }): string {
-  return resolve(input?.cwd ?? process.cwd(), "config.yaml");
+  return resolve(input?.projectRoot ?? INSTALLED_PROJECT_ROOT, "config.yaml");
 }
 
 export function resolveConfigPath(
   value: string | undefined,
-  input?: { cwd?: string; homeDir?: string }
+  input?: { cwd?: string; homeDir?: string; projectRoot?: string }
 ): string {
   const expanded = expandHomePath(value, input?.homeDir);
-  return expanded ? resolve(input?.cwd ?? process.cwd(), expanded) : resolveDefaultConfigPath(input);
+  return expanded
+    ? resolve(input?.cwd ?? process.cwd(), expanded)
+    : resolveDefaultConfigPath({ projectRoot: input?.projectRoot });
 }
 
 export function resolveDefaultWorkspacePath(input?: {

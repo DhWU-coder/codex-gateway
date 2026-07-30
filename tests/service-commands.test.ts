@@ -60,6 +60,46 @@ describe("service commands", () => {
     expect(probedHost).toBe("127.0.0.1");
   });
 
+  test("defaults the daemon config to the installed project root", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "codex-gateway-project-"));
+    const invocationRoot = mkdtempSync(join(tmpdir(), "codex-gateway-caller-"));
+    const configPath = join(projectRoot, "config.yaml");
+    await Bun.write(
+      configPath,
+      [
+        "service:",
+        "  host: 0.0.0.0",
+        "  port: 18788",
+        `  cwd: ${join(projectRoot, "workspace")}`,
+        "channels:",
+        "  feishu:",
+        "    accounts:",
+        "      - id: primary",
+        "        enabled: true",
+        "        appId: cli_test",
+        "        appSecret: secret",
+        "",
+      ].join("\n")
+    );
+    let spawnedConfigPath: string | undefined;
+
+    const result = await startServiceCommand({
+      cwd: invocationRoot,
+      projectRoot,
+      env: { CODEX_GATEWAY_HOME: join(projectRoot, "gateway-home") },
+      readState: () => null,
+      writeState: () => undefined,
+      findPort: async () => ({ port: 18788 }),
+      spawnDaemon: (input) => {
+        spawnedConfigPath = input.configPath;
+        return 4321;
+      },
+    });
+
+    expect(spawnedConfigPath).toBe(configPath);
+    expect(result.state.host).toBe("0.0.0.0");
+  });
+
   test("reports LAN chat URLs for a public listener", async () => {
     const root = mkdtempSync(join(tmpdir(), "codex-gateway-service-lan-"));
     const configPath = join(root, "config.yaml");

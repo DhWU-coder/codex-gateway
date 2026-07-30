@@ -23,6 +23,7 @@ export interface StartServiceResult {
 export interface ServiceCommandOptions {
   configPath?: string;
   cwd?: string;
+  projectRoot?: string;
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
   readState?: () => ServiceState | null;
@@ -78,7 +79,10 @@ export async function startServiceCommand(
     return { state: existing as ServiceState, alreadyRunning: true };
   }
 
-  const configPath = resolveConfigPath(options.configPath, { cwd: options.cwd });
+  const configPath = resolveConfigPath(options.configPath, {
+    cwd: options.cwd,
+    projectRoot: options.projectRoot,
+  });
   const config = loadGatewayConfig({ configPath, env: options.env });
   const cwd = config.service.cwd;
   mkdirSync(cwd, { recursive: true, mode: 0o700 });

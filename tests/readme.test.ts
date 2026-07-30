@@ -45,5 +45,7 @@ describe("README", () => {
     expect(readme).not.toContain("bun run src/index.ts");
     expect(readme).not.toContain("./bin/codex-gateway.cjs");
     expect(readme).not.toContain("~/.codex-gateway/config.yaml");
+    expect(readme).toContain("与执行命令时所在目录无关");
+    expect(readme).toContain("codex-gateway doctor --config");
   });
 });

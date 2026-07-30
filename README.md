@@ -152,7 +152,17 @@ codex-gateway stop
 
 ## 配置
 
-默认读取项目根目录下的 `config.yaml`。参考 [config-example.yaml](config-example.yaml)。
+默认读取当前安装的 `codex-gateway` 项目根目录下的 `config.yaml`。项目根目录由 CLI
+自身所在位置动态推导，与执行命令时所在目录无关；仓库 clone 到其他电脑或其他路径后，
+会自动使用新项目目录中的配置。需要临时使用其他配置时可以显式覆盖：
+
+```bash
+codex-gateway doctor --config /path/to/config.yaml
+codex-gateway start --config /path/to/config.yaml
+```
+
+相对 `--config` 路径仍相对于执行命令时所在目录解析。配置格式参考
+[config-example.yaml](config-example.yaml)。
 
 服务监听地址默认只绑定 loopback：
 
