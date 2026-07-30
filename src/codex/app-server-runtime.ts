@@ -418,6 +418,9 @@ function mapItemEvent(
 } {
   const type = readString(item.type);
   const id = readString(item.id) || undefined;
+  if (type === "userMessage" || type === "user_message") {
+    return { progress: [] };
+  }
   if (type === "agentMessage" || type === "agent_message") {
     if (lifecycle !== "completed") return { progress: [] };
     const text = readString(item.text);

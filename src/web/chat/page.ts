@@ -1,5 +1,7 @@
 import {
+  Download,
   Ellipsis,
+  FileText,
   ListChecks,
   LogOut,
   Menu,
@@ -29,6 +31,8 @@ export interface WebChatPageOptions {
 const WEB_CHAT_ICONS = {
   add: renderWebChatIcon(Plus),
   attachment: renderWebChatIcon(Paperclip),
+  download: renderWebChatIcon(Download),
+  file: renderWebChatIcon(FileText, "attachment-file-icon"),
   logout: renderWebChatIcon(LogOut),
   multiSelect: renderWebChatIcon(ListChecks),
   menu: renderWebChatIcon(Menu),
@@ -171,6 +175,8 @@ export function renderWebChatPage(options: WebChatPageOptions = {}): string {
       </button>
     </div>
     <template id="sessionMoreIconTemplate">${WEB_CHAT_ICONS.more}</template>
+    <template id="fileIconTemplate">${WEB_CHAT_ICONS.file}</template>
+    <template id="downloadIconTemplate">${WEB_CHAT_ICONS.download}</template>
     <button class="drawer-backdrop" id="drawerBackdrop" type="button" aria-label="关闭对话列表"></button>
 
     <main class="workspace" id="chatWorkspace">

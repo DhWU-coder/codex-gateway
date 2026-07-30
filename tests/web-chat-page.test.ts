@@ -346,6 +346,19 @@ describe("Web Chat 页面", () => {
     expect(html).not.toContain('content: "\\u203A"');
   });
 
+  test("已接收的用户消息在服务端历史落盘前保持显示", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain("pendingAcceptedMessages: new Map()");
+    expect(html).toContain("function rememberAcceptedMessage(message)");
+    expect(html).toContain("function mergePendingAcceptedMessages(serverMessages)");
+    expect(html).toContain("state.pendingAcceptedMessages.set(message.id, message)");
+    expect(html).toContain(
+      "state.messages = mergePendingAcceptedMessages(serverMessages);"
+    );
+    expect(html).toContain("state.pendingAcceptedMessages.delete(message.id)");
+  });
+
   test("失败 Trace 展开后显示具体错误", () => {
     const html = renderWebChatPage();
 
@@ -396,6 +409,34 @@ describe("Web Chat 页面", () => {
     expect(html).toContain("clipboardData.items");
     expect(html).toContain("MAX_PENDING_FILE_BYTES");
     expect(html).toContain("state.selectedReferences.length === 0");
+  });
+
+  test("消息附件使用带元信息和独立下载按钮的紧凑文件条", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain('id="fileIconTemplate"');
+    expect(html).toContain('id="downloadIconTemplate"');
+    expect(html).toContain("function formatAttachmentType(file)");
+    expect(html).toContain("function formatFileSize(value)");
+    expect(html).toContain('container.className = "attachments file-attachments"');
+    expect(html).toContain('item.className = "attachment-file"');
+    expect(html).toContain('name.className = "attachment-name"');
+    expect(html).toContain('meta.className = "attachment-meta"');
+    expect(html).toContain('download.className = "attachment-download tooltip-button"');
+    expect(html).toContain('download.setAttribute("download", file.name)');
+    expect(html).toContain(
+      'download.setAttribute("data-tooltip", "\\u4E0B\\u8F7D\\u6587\\u4EF6")'
+    );
+    expect(html).toContain(
+      ".attachment-file {"
+    );
+    expect(html).toContain(
+      ".attachment-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }"
+    );
+    expect(html).toContain(
+      ".attachment-file { width: 100%; max-width: 100%; }"
+    );
+    expect(html).not.toContain('link.textContent = "↓ " + file.name');
   });
 
   test("所有内联脚本语法有效且 Markdown 不使用 innerHTML", () => {

@@ -33,6 +33,26 @@ describe("Codex App Server Runtime", () => {
           },
         });
         queueMicrotask(() => {
+          client.notify("item/started", {
+            threadId: "thread-new",
+            turnId: "turn-new",
+            startedAtMs: 1,
+            item: {
+              type: "userMessage",
+              id: "user-1",
+              content: [{ type: "text", text: "检查项目" }],
+            },
+          });
+          client.notify("item/completed", {
+            threadId: "thread-new",
+            turnId: "turn-new",
+            completedAtMs: 1,
+            item: {
+              type: "user_message",
+              id: "user-1",
+              content: [{ type: "text", text: "检查项目" }],
+            },
+          });
           client.notify("item/completed", {
             threadId: "thread-new",
             turnId: "turn-new",

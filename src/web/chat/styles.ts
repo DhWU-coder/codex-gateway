@@ -430,6 +430,47 @@ button { cursor: pointer; }
   text-decoration: none;
 }
 .attachment span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-attachments { gap: 8px; }
+.attachment-file {
+  width: min(100%, 420px);
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-2);
+}
+.attachment-file:hover { border-color: var(--line-strong); }
+.attachment-file-type {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--surface-3);
+  color: var(--muted);
+}
+.attachment-file-icon { width: 20px; height: 20px; }
+.attachment-info { min-width: 0; display: grid; gap: 2px; }
+.attachment-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-meta { color: var(--muted); font-size: 12px; }
+.attachment-download {
+  position: relative;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  text-decoration: none;
+}
+.attachment-download:hover,
+.attachment-download:focus-visible { background: var(--surface-3); color: var(--text); }
 .streaming::after { content: ""; display: inline-block; width: 7px; height: 15px; margin-left: 3px; vertical-align: -2px; background: var(--accent); animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 .trace-card {
@@ -700,6 +741,7 @@ button { cursor: pointer; }
   .trace-card { margin-left: 39px; }
   .trace-card.inline { margin-left: 0; }
   .trace-body { padding-left: 14px; }
+  .attachment-file { width: 100%; max-width: 100%; }
   .composer-shell { padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); }
   .composer { min-height: 104px; padding: 12px; border-radius: 16px; }
   .composer textarea { min-height: 42px; }

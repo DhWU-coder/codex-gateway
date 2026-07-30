@@ -26,6 +26,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     eventSource: null,
     streamText: new Map(),
     activities: new Map(),
+    pendingAcceptedMessages: new Map(),
     expandedTraceIds: new Set(),
     notices: [],
     contextSessionId: null,
@@ -75,6 +76,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     state.savingAccountSettings = false;
     state.streamText.clear();
     state.activities.clear();
+    state.pendingAcceptedMessages.clear();
     state.expandedTraceIds.clear();
     closeSessionContextMenu();
     closeComposerPopovers();
@@ -223,6 +225,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     state.notices = [];
     state.streamText.clear();
     state.activities.clear();
+    state.pendingAcceptedMessages.clear();
     renderSessions();
     renderCurrentSession();
     connectEvents();
@@ -562,6 +565,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
         state.currentSession = null;
         state.messages = [];
         state.traces = [];
+        state.pendingAcceptedMessages.clear();
       }
       await loadSessions();
       if (removedCurrent) {
@@ -657,6 +661,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
       state.currentSession = null;
       state.messages = [];
       state.traces = [];
+      state.pendingAcceptedMessages.clear();
     }
     await loadSessions();
     if (removedCurrent) {
@@ -678,6 +683,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     state.currentSession = data.session;
     state.messages = data.messages && data.messages.messages ? data.messages.messages : [];
     state.traces = data.traces || [];
+    state.pendingAcceptedMessages.clear();
     state.selectedReferences = [];
     state.notices = [];
     state.streamText.clear();
@@ -871,16 +877,68 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     return container;
   }
 
+  function formatAttachmentType(file) {
+    var name = String(file && file.name || "");
+    var extension = name.includes(".")
+      ? name.split(".").pop().trim().toUpperCase()
+      : "";
+    if (extension && extension.length <= 8) return extension;
+    var mimeType = String(file && file.mimeType || "").toLowerCase();
+    if (mimeType === "application/pdf") return "PDF";
+    if (mimeType.startsWith("image/")) return "图片";
+    if (mimeType.startsWith("audio/")) return "音频";
+    if (mimeType.startsWith("video/")) return "视频";
+    if (mimeType.startsWith("text/")) return "文本";
+    return "文件";
+  }
+
+  function formatFileSize(value) {
+    var bytes = Number(value);
+    if (!Number.isFinite(bytes) || bytes < 0) return "";
+    var units = ["B", "KB", "MB", "GB"];
+    var unitIndex = 0;
+    var amount = bytes;
+    while (amount >= 1024 && unitIndex < units.length - 1) {
+      amount /= 1024;
+      unitIndex += 1;
+    }
+    var digits = unitIndex === 0 || amount >= 10 ? 0 : 1;
+    return amount.toFixed(digits).replace(/\.0$/, "") + " " + units[unitIndex];
+  }
+
   function createAttachments(attachments) {
     var container = document.createElement("div");
-    container.className = "attachments";
+    container.className = "attachments file-attachments";
     attachments.forEach(function (file) {
-      var link = document.createElement("a");
-      link.className = "attachment";
-      link.href = "/api/chat/files/" + encodeURIComponent(file.id);
-      link.textContent = "↓ " + file.name;
-      link.setAttribute("download", file.name);
-      container.append(link);
+      var item = document.createElement("div");
+      item.className = "attachment-file";
+      var icon = document.createElement("span");
+      icon.className = "attachment-file-type";
+      icon.append(byId("fileIconTemplate").content.cloneNode(true));
+      var info = document.createElement("span");
+      info.className = "attachment-info";
+      var name = document.createElement("span");
+      name.className = "attachment-name";
+      name.textContent = file.name;
+      name.title = file.name;
+      var meta = document.createElement("span");
+      meta.className = "attachment-meta";
+      meta.textContent = [
+        formatAttachmentType(file),
+        formatFileSize(file.size)
+      ].filter(Boolean).join(" · ");
+      info.append(name);
+      if (meta.textContent) info.append(meta);
+      var download = document.createElement("a");
+      download.className = "attachment-download tooltip-button";
+      download.href = "/api/chat/files/" + encodeURIComponent(file.id);
+      download.title = "下载文件";
+      download.setAttribute("aria-label", "下载 " + file.name);
+      download.setAttribute("data-tooltip", "下载文件");
+      download.setAttribute("download", file.name);
+      download.append(byId("downloadIconTemplate").content.cloneNode(true));
+      item.append(icon, info, download);
+      container.append(item);
     });
     return container;
   }
@@ -1761,7 +1819,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     }
     if (!state.currentSession || data.sessionId !== state.currentSession.id) return;
     if (type === "message.accepted") {
-      state.messages.push({
+      rememberAcceptedMessage({
         id: data.messageId,
         role: "user",
         text: data.text,
@@ -1826,6 +1884,34 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     }
   }
 
+  function rememberAcceptedMessage(message) {
+    if (!message || !message.id) return;
+    state.pendingAcceptedMessages.set(message.id, message);
+    var existingIndex = state.messages.findIndex(function (item) {
+      return item.id === message.id;
+    });
+    if (existingIndex >= 0) {
+      state.messages[existingIndex] = message;
+    } else {
+      state.messages.push(message);
+    }
+  }
+
+  function mergePendingAcceptedMessages(serverMessages) {
+    var messages = Array.isArray(serverMessages) ? serverMessages.slice() : [];
+    var serverIds = new Set(messages.map(function (message) {
+      return message.id;
+    }));
+    state.pendingAcceptedMessages.forEach(function (message) {
+      if (serverIds.has(message.id)) {
+        state.pendingAcceptedMessages.delete(message.id);
+        return;
+      }
+      messages.push(message);
+    });
+    return messages;
+  }
+
   function scheduleTraceRefresh() {
     clearTimeout(state.traceRefreshTimer);
     state.traceRefreshTimer = setTimeout(function () {
@@ -1839,7 +1925,9 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     var data = await api("/api/chat/sessions/" + encodeURIComponent(sessionId));
     if (!state.currentSession || state.currentSession.id !== sessionId) return;
     state.currentSession = data.session;
-    state.messages = data.messages && data.messages.messages ? data.messages.messages : [];
+    var serverMessages =
+      data.messages && data.messages.messages ? data.messages.messages : [];
+    state.messages = mergePendingAcceptedMessages(serverMessages);
     state.traces = data.traces || [];
     renderCurrentSession();
   }
