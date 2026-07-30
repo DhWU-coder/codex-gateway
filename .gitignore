@@ -5,6 +5,7 @@ dist/
 .idea/
 .venv/
 *.log
+docs/superpowers/
 
 # 本地真实密钥配置不要提交
 config.yaml
