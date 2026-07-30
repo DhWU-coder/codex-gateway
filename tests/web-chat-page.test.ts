@@ -260,6 +260,23 @@ describe("Web Chat 页面", () => {
     );
   });
 
+  test("Composer 在输入法组合期间不触发发送或面板快捷键", () => {
+    const html = renderWebChatPage();
+    const guard = 'if (event.isComposing || composerIsComposing || event.keyCode === 229) return;';
+    const guardIndex = html.indexOf(guard);
+    const sendIndex = html.indexOf(
+      'if (event.key === "Enter" && !event.shiftKey)',
+      guardIndex
+    );
+
+    expect(html).toContain("var composerIsComposing = false;");
+    expect(html).toContain('addEventListener("compositionstart"');
+    expect(html).toContain('addEventListener("compositionend"');
+    expect(html).toContain(guard);
+    expect(guardIndex).toBeGreaterThan(-1);
+    expect(sendIndex).toBeGreaterThan(guardIndex);
+  });
+
   test("Trace 归入对应 Codex 回复，完成后自动折叠并保留手动展开能力", () => {
     const html = renderWebChatPage();
 

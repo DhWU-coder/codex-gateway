@@ -2,6 +2,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
 (function () {
   var MAX_PENDING_FILE_BYTES = 30 * 1024 * 1024;
   var fileDragDepth = 0;
+  var composerIsComposing = false;
   var state = {
     user: null,
     csrfToken: "",
@@ -2180,7 +2181,16 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
       sendMessage().catch(showError);
     });
     byId("stopButton").addEventListener("click", stopCurrentSession);
-    byId("composerInput").addEventListener("keydown", function (event) {
+    var composerInput = byId("composerInput");
+    composerInput.addEventListener("compositionstart", function () {
+      composerIsComposing = true;
+    });
+    composerInput.addEventListener("compositionend", function () {
+      composerIsComposing = false;
+    });
+    composerInput.addEventListener("keydown", function (event) {
+      // Safari 结束输入法组合时可能提前清除 isComposing，229 作为兼容兜底。
+      if (event.isComposing || composerIsComposing || event.keyCode === 229) return;
       if (
         (state.activePalette === "commandPalette" || state.activePalette === "referencePalette")
         && event.key === "ArrowDown"
@@ -2217,12 +2227,12 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
         sendMessage().catch(showError);
       }
     });
-    byId("composerInput").addEventListener("input", function (event) {
+    composerInput.addEventListener("input", function (event) {
       event.target.style.height = "auto";
       event.target.style.height = Math.min(160, event.target.scrollHeight) + "px";
       updateComposerPanels();
     });
-    byId("composerInput").addEventListener("paste", function (event) {
+    composerInput.addEventListener("paste", function (event) {
       var items = Array.from(event.clipboardData && event.clipboardData.items || []);
       var files = items
         .filter(function (item) { return item.kind === "file"; })
