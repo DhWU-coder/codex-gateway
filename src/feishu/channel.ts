@@ -34,6 +34,7 @@ import {
   readFeishuInstructionsFile,
   writeFeishuInstructionsFile,
 } from "./instructions.js";
+import { FeishuMessageDedupeStore } from "./message-dedupe-store.js";
 import { FeishuMessageProgressTracker } from "./message-tracker.js";
 import { FeishuOutputRelay } from "./output-relay.js";
 import {
@@ -135,6 +136,7 @@ export interface FeishuChannelOptions {
   now?: () => number;
   logger?: Pick<Console, "log" | "warn" | "error">;
   modelCatalogProvider?: () => Promise<CodexModelOption[]>;
+  messageDedupeStore?: Pick<FeishuMessageDedupeStore, "claim">;
 }
 
 export class FeishuChannel {
@@ -151,10 +153,9 @@ export class FeishuChannel {
   private readonly logger: Pick<Console, "log" | "warn" | "error">;
   private readonly modelCatalogProvider?: () => Promise<CodexModelOption[]>;
   private readonly replyTargets = new Map<string, string>();
-  private readonly handledMessageIds = new Map<string, number>();
+  private readonly messageDedupeStore: Pick<FeishuMessageDedupeStore, "claim">;
   private readonly outputRelays = new Map<string, FeishuOutputRelay>();
   private readonly messageTracker: FeishuMessageProgressTracker;
-  private readonly messageDedupeTtlMs: number;
   private readonly outputQuietMs: number;
   private readonly now: () => number;
   private sendProgressReplies: boolean;
@@ -174,7 +175,14 @@ export class FeishuChannel {
     this.logger = options.logger ?? console;
     this.modelCatalogProvider = options.modelCatalogProvider;
     this.now = options.now ?? (() => Date.now());
-    this.messageDedupeTtlMs = options.account.messageDedupeTtlMs ?? 10 * 60 * 1000;
+    this.messageDedupeStore =
+      options.messageDedupeStore ??
+      new FeishuMessageDedupeStore({
+        path: join(dirname(options.account.historyBaseDir), "handled-messages.json"),
+        retentionMs: options.account.messageDedupeTtlMs,
+        now: this.now,
+        logger: this.logger,
+      });
     this.outputQuietMs = options.outputQuietMs ?? 800;
     this.sendProgressReplies = options.account.sendProgressReplies;
     this.messageTracker = new FeishuMessageProgressTracker({
@@ -300,7 +308,17 @@ export class FeishuChannel {
     const event = parseFeishuMessageEvent(payload);
     if (!event) return;
     if (!shouldHandleMessage(event, this.account.botOpenId ?? "")) return;
-    if (event.messageId && this.isDuplicateMessage(event.messageId)) return;
+    if (event.messageId) {
+      try {
+        if (!this.messageDedupeStore.claim(event.messageId)) {
+          this.logger.log(`飞书重复消息已忽略：${event.messageId}`);
+          return;
+        }
+      } catch (error) {
+        this.logger.error(`飞书消息去重记录写入失败：${formatError(error)}`);
+        return;
+      }
+    }
 
     try {
       await this.processMessageEvent(event);
@@ -911,19 +929,6 @@ export class FeishuChannel {
     } catch (error) {
       this.logger.warn(`飞书 Typing 状态移除失败：${formatError(error)}`);
     }
-  }
-
-  private isDuplicateMessage(messageId: string): boolean {
-    const timestamp = this.now();
-    for (const [handledId, handledAt] of this.handledMessageIds) {
-      if (timestamp - handledAt >= this.messageDedupeTtlMs) {
-        this.handledMessageIds.delete(handledId);
-      }
-    }
-    const handledAt = this.handledMessageIds.get(messageId);
-    if (handledAt !== undefined && timestamp - handledAt < this.messageDedupeTtlMs) return true;
-    this.handledMessageIds.set(messageId, timestamp);
-    return false;
   }
 
   private createDefaultRouter(): FeishuRouterLike {

@@ -194,7 +194,7 @@ codex:
 
 ```yaml
 sendProgressReplies: false
-messageDedupeTtlMs: 600000
+messageDedupeTtlMs: 604800000
 history:
   maxMessages: 50
   maxSessions: 100
@@ -203,6 +203,8 @@ summary:
   maxMessages: 50
   concurrency: 5
 ```
+
+飞书事件会在 3 秒内完成确认，Codex 在后台继续处理。已领取的 `message_id` 默认在 `~/.codex-gateway/channels/feishu/<accountId>/handled-messages.json` 中保留 7 天，服务重启后仍会拦截飞书重投；`messageDedupeTtlMs` 可调整保留时间。
 
 `history.maxSessions` 超限时会删除最旧的非当前归档。会话元信息、索引和摘要使用原子写入；索引或当前指针损坏时会从归档目录自动恢复。
 

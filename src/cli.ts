@@ -78,7 +78,7 @@ channels:
         cwd: ~/.codex-gateway/workspace/donghao
         historyBaseDir: ~/.codex-gateway/channels/feishu/donghao/sessions
         sendProgressReplies: false
-        messageDedupeTtlMs: 600000
+        messageDedupeTtlMs: 604800000
         history:
           maxMessages: 50
           maxSessions: 100

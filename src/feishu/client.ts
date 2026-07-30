@@ -98,11 +98,20 @@ function resolveMessageReactionApi(
   return api;
 }
 
-export function createFeishuEventClient(wsClient: FeishuWsClientLike): FeishuEventClient {
+export function createFeishuEventClient(
+  wsClient: FeishuWsClientLike,
+  logger: Pick<Console, "error"> = console
+): FeishuEventClient {
   return {
     async start(onEvent) {
       const eventDispatcher = new Lark.EventDispatcher({}).register({
-        "im.message.receive_v1": async (data: unknown) => onEvent({ event: data }),
+        "im.message.receive_v1": (data: unknown) => {
+          void Promise.resolve()
+            .then(() => onEvent({ event: data }))
+            .catch((error) => {
+              logger.error(`飞书事件后台处理失败：${formatError(error)}`);
+            });
+        },
       });
       await wsClient.start({ eventDispatcher });
     },
@@ -110,6 +119,10 @@ export function createFeishuEventClient(wsClient: FeishuWsClientLike): FeishuEve
       wsClient.close({ force: true });
     },
   };
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function createFeishuMediaClient(client: FeishuSdkMediaClientLike): FeishuMediaClient {

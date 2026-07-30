@@ -245,7 +245,8 @@ function normalizeFeishuAccount(
       maxMessages: readPositiveInteger(summaryRaw.maxMessages) ?? 50,
       concurrency: readPositiveInteger(summaryRaw.concurrency) ?? 5,
     },
-    messageDedupeTtlMs: readPositiveInteger(raw.messageDedupeTtlMs) ?? 10 * 60 * 1000,
+    messageDedupeTtlMs:
+      readPositiveInteger(raw.messageDedupeTtlMs) ?? 7 * 24 * 60 * 60 * 1000,
   };
 }
 

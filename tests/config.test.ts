@@ -114,7 +114,7 @@ describe("gateway config", () => {
       domain: "feishu",
       history: { maxMessages: 50, maxSessions: 100 },
       summary: { maxMessages: 50, concurrency: 5 },
-      messageDedupeTtlMs: 600000,
+      messageDedupeTtlMs: 604800000,
     });
     expect(config.channels.feishu.accounts[1]).toMatchObject({
       id: "team",

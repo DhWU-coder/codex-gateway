@@ -29,7 +29,7 @@ describe("CLI helpers", () => {
     expect(config).toContain("port: 18788");
     expect(config).toContain("registrationEnabled: false");
     expect(config).toContain("appId: cli_xxx");
-    expect(config).toContain("messageDedupeTtlMs: 600000");
+    expect(config).toContain("messageDedupeTtlMs: 604800000");
     expect(config).toContain("history:");
     expect(config).toContain("summary:");
     expect(config).toContain("sandbox: danger-full-access");

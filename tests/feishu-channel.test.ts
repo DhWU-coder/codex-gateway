@@ -54,6 +54,7 @@ describe("Feishu channel", () => {
   test("routes a direct message to Codex and replies with router output", async () => {
     const sentPrompts: string[] = [];
     const replies: string[] = [];
+    const historyRoot = mkdtempSync(join(tmpdir(), "codex-gateway-channel-route-"));
     const channel = new FeishuChannel({
       account: {
         id: "test",
@@ -63,7 +64,7 @@ describe("Feishu channel", () => {
         botOpenId: "ou_bot",
         domain: "feishu",
         cwd: "/tmp/work",
-        historyBaseDir: "/tmp/history",
+        historyBaseDir: join(historyRoot, "sessions"),
         sendProgressReplies: false,
       },
       eventClient: {
@@ -711,12 +712,51 @@ describe("Feishu channel", () => {
     expect(replies).toEqual(["实时 答案"]);
   });
 
-  test("deduplicates messages only within the configured TTL", async () => {
-    let now = 0;
+  test("重建 Channel 后仍拒绝已经处理的消息", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codex-gateway-channel-dedupe-restart-"));
+    const channelAccount = account(join(root, "workspace"));
     let routed = 0;
+    const router = {
+      async send() {
+        routed += 1;
+      },
+      resetSession() {},
+      stopSession: () => true,
+      stopAll() {},
+      getStatus: () => ({ running: false }),
+    };
+    const firstChannel = new FeishuChannel({
+      account: channelAccount,
+      router,
+    });
+
+    await firstChannel.handleEvent(textPayload("同一条消息", "om_dedupe"));
+    const secondChannel = new FeishuChannel({
+      account: channelAccount,
+      router,
+    });
+    await secondChannel.handleEvent(textPayload("同一条消息", "om_dedupe"));
+
+    expect(routed).toBe(1);
+  });
+
+  test("去重记录写入失败时不执行消息", async () => {
+    let routed = 0;
+    const errors: string[] = [];
     const channel = new FeishuChannel({
-      account: { ...account("/tmp/work"), messageDedupeTtlMs: 100 },
-      now: () => now,
+      account: account("/tmp/work"),
+      messageDedupeStore: {
+        claim() {
+          throw new Error("磁盘已满");
+        },
+      },
+      logger: {
+        log() {},
+        warn() {},
+        error(message) {
+          errors.push(String(message));
+        },
+      },
       router: {
         async send() {
           routed += 1;
@@ -728,13 +768,10 @@ describe("Feishu channel", () => {
       },
     });
 
-    await channel.handleEvent(textPayload("同一条消息", "om_dedupe"));
-    now = 50;
-    await channel.handleEvent(textPayload("同一条消息", "om_dedupe"));
-    now = 101;
-    await channel.handleEvent(textPayload("同一条消息", "om_dedupe"));
+    await channel.handleEvent(textPayload("不能重复的消息", "om_write_failed"));
 
-    expect(routed).toBe(2);
+    expect(routed).toBe(0);
+    expect(errors).toEqual(["飞书消息去重记录写入失败：磁盘已满"]);
   });
 
   test("updates progress replies at runtime and exposes connection checks", async () => {
@@ -793,6 +830,7 @@ describe("Feishu channel", () => {
 });
 
 function account(cwd: string) {
+  const historyRoot = mkdtempSync(join(tmpdir(), "codex-gateway-channel-history-"));
   return {
     id: "test",
     enabled: true,
@@ -801,7 +839,7 @@ function account(cwd: string) {
     botOpenId: "ou_bot",
     domain: "feishu" as const,
     cwd,
-    historyBaseDir: join(cwd, "history"),
+    historyBaseDir: join(historyRoot, "sessions"),
     sendProgressReplies: false,
   };
 }

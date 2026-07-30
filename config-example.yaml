@@ -44,8 +44,8 @@ channels:
         historyBaseDir: ~/.codex-gateway/channels/feishu/donghao/sessions
         # 是否把 Codex 的实时文本过程合并后回复到飞书；也可在 Web UI 临时切换
         sendProgressReplies: false
-        # 同一飞书 message_id 在窗口内只处理一次
-        messageDedupeTtlMs: 600000
+        # 同一飞书 message_id 在窗口内只处理一次，默认保留 7 天
+        messageDedupeTtlMs: 604800000
         history:
           # 新会话缺少原生 Codex session 时，最多回填的历史消息数
           maxMessages: 50
