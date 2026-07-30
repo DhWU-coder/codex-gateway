@@ -351,20 +351,32 @@ describe("Web Chat 页面", () => {
 
     expect(html).toContain('content.className = "message-content"');
     expect(html).toContain(
-      ".message.user { grid-template-columns: minmax(0, 1fr) 34px; }"
+      "--chat-content-width: 900px;"
     );
     expect(html).toContain(
-      ".message.user .message-avatar { grid-column: 2; grid-row: 1; }"
+      "max(var(--chat-side-padding), calc((100% - var(--chat-content-width)) / 2))"
+    );
+    expect(html).toContain("scrollbar-width: none;");
+    expect(html).toContain(
+      ".message-list::-webkit-scrollbar { display: none; }"
     );
     expect(html).toContain(
-      ".message.user .message-content { grid-column: 1; grid-row: 1; justify-self: end;"
-    );
-    expect(html).toContain("max-width: min(70%, 720px)");
-    expect(html).toContain(
-      ".message.assistant .message-content { min-width: 0; }"
+      ".message { position: relative; display: block;"
     );
     expect(html).toContain(
-      ".message.user .message-content { max-width: 88%;"
+      ".message-avatar {\n  position: absolute;"
+    );
+    expect(html).toContain(
+      ".message.user .message-avatar { right: -46px; left: auto;"
+    );
+    expect(html).toContain(
+      ".message.user .message-content { width: fit-content; max-width: min(70%, 720px); margin-left: auto;"
+    );
+    expect(html).toContain(
+      ".message.assistant .message-content { width: 100%; min-width: 0; }"
+    );
+    expect(html).toContain(
+      ".message-avatar { display: none; }"
     );
   });
 
