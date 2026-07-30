@@ -342,8 +342,52 @@ describe("Web Chat 页面", () => {
     expect(html).toContain("message.activity");
     expect(html).toContain("message.trace");
     expect(html).toContain(".trace-card.inline");
-    expect(html).toContain('content: "›"');
-    expect(html).not.toContain('content: "\\u203A"');
+    expect(html).toContain('chevron.className = "trace-summary-chevron"');
+    expect(html).toContain('chevron.textContent = "\\u203A"');
+  });
+
+  test("用户消息靠右使用紧凑气泡且 Codex 消息保持左侧宽内容区", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain('content.className = "message-content"');
+    expect(html).toContain(
+      ".message.user { grid-template-columns: minmax(0, 1fr) 34px; }"
+    );
+    expect(html).toContain(
+      ".message.user .message-avatar { grid-column: 2; grid-row: 1; }"
+    );
+    expect(html).toContain(
+      ".message.user .message-content { grid-column: 1; grid-row: 1; justify-self: end;"
+    );
+    expect(html).toContain("max-width: min(70%, 720px)");
+    expect(html).toContain(
+      ".message.assistant .message-content { min-width: 0; }"
+    );
+    expect(html).toContain(
+      ".message.user .message-content { max-width: 88%;"
+    );
+  });
+
+  test("非运行过程显示真实耗时的简洁折叠横条", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain("function formatTraceDuration(trace)");
+    expect(html).toContain("Math.max(0, Math.round((end - start) / 1000))");
+    expect(html).toContain('return minutes + "m " + remainingSeconds + "s";');
+    expect(html).toContain('return "\\u5DF2\\u5904\\u7406" + duration;');
+    expect(html).toContain(
+      'return "\\u5904\\u7406\\u5931\\u8D25" + duration;'
+    );
+    expect(html).toContain('return "\\u5DF2\\u505C\\u6B62" + duration;');
+    expect(html).toContain(
+      ".trace-card.inline:not(.running) { border-left: 0; }"
+    );
+    expect(html).toContain(
+      ".trace-card:not(.running) > details > summary { border-bottom: 1px solid var(--line);"
+    );
+    expect(html).toContain(
+      ".trace-card > details[open] > summary .trace-summary-chevron { transform: rotate(90deg); }"
+    );
   });
 
   test("已接收的用户消息在服务端历史落盘前保持显示", () => {

@@ -806,6 +806,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     avatar.className = "message-avatar";
     avatar.textContent = message.role === "user" ? "你" : "CG";
     var content = document.createElement("div");
+    content.className = "message-content";
     var head = document.createElement("div");
     head.className = "message-head";
     var author = document.createElement("span");
@@ -854,6 +855,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     avatar.className = "message-avatar";
     avatar.textContent = "/";
     var content = document.createElement("div");
+    content.className = "message-content";
     var head = document.createElement("div");
     head.className = "message-head";
     var author = document.createElement("span");
@@ -1057,8 +1059,12 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     var dot = document.createElement("span");
     dot.className = "trace-status-dot";
     var text = document.createElement("span");
+    text.className = "trace-summary-label";
     text.textContent = traceSummary(trace);
-    summary.append(dot, text);
+    var chevron = document.createElement("span");
+    chevron.className = "trace-summary-chevron";
+    chevron.textContent = "›";
+    summary.append(dot, text, chevron);
     var body = document.createElement("div");
     body.className = "trace-body";
     if (trace.status === "failed" && trace.error) {
@@ -1145,13 +1151,22 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     if (trace.status === "running") {
       return trace.latestActivity || "Codex 正在处理";
     }
-    return trace.summary || (
-      trace.status === "completed"
-        ? "过程已完成"
-        : trace.status === "failed"
-          ? "过程失败"
-          : "过程已停止"
-    );
+    var formattedDuration = formatTraceDuration(trace);
+    var duration = formattedDuration ? " " + formattedDuration : "";
+    if (trace.status === "completed") return "已处理" + duration;
+    if (trace.status === "failed") return "处理失败" + duration;
+    return "已停止" + duration;
+  }
+
+  function formatTraceDuration(trace) {
+    var start = new Date(trace.startedAt || "").getTime();
+    var end = new Date(trace.completedAt || trace.updatedAt || "").getTime();
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "";
+    var seconds = Math.max(0, Math.round((end - start) / 1000));
+    if (seconds < 60) return seconds + "s";
+    var minutes = Math.floor(seconds / 60);
+    var remainingSeconds = seconds % 60;
+    return minutes + "m " + remainingSeconds + "s";
   }
 
   function statusLabel(status) {
