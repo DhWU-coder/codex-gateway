@@ -260,20 +260,27 @@ describe("Web Chat 页面", () => {
     );
   });
 
-  test("Trace 按顺序渲染中间回复和折叠工具组，并显示最新活动", () => {
+  test("Trace 归入对应 Codex 回复，完成后自动折叠并保留手动展开能力", () => {
     const html = renderWebChatPage();
 
-    expect(html).toContain("function createTraceNode(trace)");
+    expect(html).toContain("traceByAssistantMessage");
+    expect(html).toContain("createTraceAssistantNode");
+    expect(html).toContain("createMessageNode(message, trace)");
+    expect(html).toContain("function createTraceNode(trace, inline)");
     expect(html).toContain("(trace.entries || []).forEach");
     expect(html).toContain('entry.type === "tool_group"');
     expect(html).toContain("createToolGroupNode");
     expect(html).toContain("trace.status === \"running\"");
+    expect(html).toContain('var canRememberToggle = trace.status !== "running";');
+    expect(html).toContain('var wasRunning = trace && trace.status === "running";');
+    expect(html).toContain("state.expandedTraceIds.delete(trace.messageId);");
     expect(html).toContain("state.expandedTraceIds");
     expect(html).toContain("state.activities.set");
     expect(html).toContain("scheduleTraceRefresh");
     expect(html).toContain("scrollIntoView");
     expect(html).toContain("message.activity");
     expect(html).toContain("message.trace");
+    expect(html).toContain(".trace-card.inline");
     expect(html).toContain('content: "›"');
     expect(html).not.toContain('content: "\\u203A"');
   });

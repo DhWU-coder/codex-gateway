@@ -684,10 +684,19 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     var list = byId("messageList");
     var follow = list.scrollHeight - list.scrollTop - list.clientHeight < 120;
     var fragment = document.createDocumentFragment();
-    var traceByMessage = new Map();
+    var traceByUserMessage = new Map();
+    var traceByAssistantMessage = new Map();
+    var messageById = new Map();
     state.traces.forEach(function (trace) {
-      traceByMessage.set(trace.messageId, trace);
+      traceByUserMessage.set(trace.messageId, trace);
+      if (trace.assistantMessageId) {
+        traceByAssistantMessage.set(trace.assistantMessageId, trace);
+      }
     });
+    state.messages.forEach(function (message) {
+      if (message.id) messageById.set(message.id, message);
+    });
+    var renderedMessages = new Set();
     var renderedTraces = new Set();
     if (!state.messages.length && !state.traces.length && !state.notices.length) {
       var empty = document.createElement("div");
@@ -696,18 +705,35 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
       fragment.append(empty);
     } else {
       state.messages.forEach(function (message) {
-        fragment.append(createMessageNode(message));
+        if (message.id && renderedMessages.has(message.id)) return;
         if (message.role === "user") {
-          var trace = traceByMessage.get(message.id);
+          fragment.append(createMessageNode(message));
+          if (message.id) renderedMessages.add(message.id);
+          var trace = traceByUserMessage.get(message.id);
           if (trace) {
-            fragment.append(createTraceNode(trace));
+            var assistantMessage = messageById.get(trace.assistantMessageId);
+            if (assistantMessage && assistantMessage.role === "assistant") {
+              fragment.append(createMessageNode(assistantMessage, trace));
+              if (assistantMessage.id) renderedMessages.add(assistantMessage.id);
+            } else {
+              fragment.append(createTraceAssistantNode(trace));
+            }
             renderedTraces.add(trace.messageId);
           }
+          return;
         }
+        var trace = traceByAssistantMessage.get(message.id);
+        var userMessage = trace ? messageById.get(trace.messageId) : null;
+        if (userMessage && !renderedMessages.has(userMessage.id)) {
+          return;
+        }
+        fragment.append(createMessageNode(message, trace));
+        if (message.id) renderedMessages.add(message.id);
+        if (trace) renderedTraces.add(trace.messageId);
       });
       state.traces.forEach(function (trace) {
         if (!renderedTraces.has(trace.messageId)) {
-          fragment.append(createTraceNode(trace));
+          fragment.append(createTraceAssistantNode(trace));
         }
       });
       state.notices.forEach(function (notice) {
@@ -722,7 +748,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     }
   }
 
-  function createMessageNode(message) {
+  function createMessageNode(message, trace) {
     var article = document.createElement("article");
     article.className = "message " + message.role;
     if (message.id) article.dataset.messageId = message.id;
@@ -739,10 +765,16 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     time.className = "message-time";
     time.textContent = formatTime(message.createdAt);
     head.append(author, time);
-    var body = document.createElement("div");
-    body.className = "message-body" + (message.streaming ? " streaming" : "");
-    window.renderSafeMarkdown(body, message.text || "");
-    content.append(head, body);
+    content.append(head);
+    if (trace && message.role === "assistant") {
+      content.append(createTraceNode(trace, true));
+    }
+    if (message.text || message.streaming) {
+      var body = document.createElement("div");
+      body.className = "message-body" + (message.streaming ? " streaming" : "");
+      window.renderSafeMarkdown(body, message.text || "");
+      content.append(body);
+    }
     if (message.references && message.references.length) {
       content.append(createHistoryReferences(message.references));
     }
@@ -751,6 +783,18 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     }
     article.append(avatar, content);
     return article;
+  }
+
+  function createTraceAssistantNode(trace) {
+    return createMessageNode(
+      {
+        id: trace.assistantMessageId || "",
+        role: "assistant",
+        text: "",
+        createdAt: trace.startedAt
+      },
+      trace
+    );
   }
 
   function createNoticeNode(notice) {
@@ -803,15 +847,16 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     return container;
   }
 
-  function createTraceNode(trace) {
+  function createTraceNode(trace, inline) {
     var section = document.createElement("section");
-    section.className = "trace-card " + trace.status;
+    section.className = "trace-card " + trace.status + (inline ? " inline" : "");
     section.id = "trace-" + trace.messageId;
     section.dataset.traceId = trace.messageId;
     var details = document.createElement("details");
+    var canRememberToggle = trace.status !== "running";
     details.open = trace.status === "running" || state.expandedTraceIds.has(trace.messageId);
     details.addEventListener("toggle", function () {
-      if (trace.status === "running") return;
+      if (!canRememberToggle) return;
       if (details.open) state.expandedTraceIds.add(trace.messageId);
       else state.expandedTraceIds.delete(trace.messageId);
     });
@@ -1690,7 +1735,11 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     }
     if (type === "message.trace") {
       var trace = state.traces.find(function (item) { return item.messageId === data.messageId; });
+      var wasRunning = trace && trace.status === "running";
       if (trace && data.trace) Object.assign(trace, data.trace);
+      if (wasRunning && trace.status !== "running") {
+        state.expandedTraceIds.delete(trace.messageId);
+      }
       updateLatestActivityBar();
       scheduleTraceRefresh();
       return;

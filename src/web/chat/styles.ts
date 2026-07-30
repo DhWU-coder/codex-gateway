@@ -437,6 +437,7 @@ button { cursor: pointer; }
   border-left: 1px solid var(--line);
   color: var(--muted);
 }
+.trace-card.inline { margin: 2px 0 12px; }
 .trace-card > details > summary {
   display: flex;
   min-height: 38px;
@@ -695,6 +696,7 @@ button { cursor: pointer; }
   .message { grid-template-columns: 30px minmax(0, 1fr); gap: 9px; margin-bottom: 22px; }
   .message-avatar { width: 30px; height: 30px; }
   .trace-card { margin-left: 39px; }
+  .trace-card.inline { margin-left: 0; }
   .trace-body { padding-left: 14px; }
   .composer-shell { padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); }
   .composer { min-height: 104px; padding: 12px; border-radius: 16px; }
