@@ -437,6 +437,66 @@ describe("Web Chat HTTP", () => {
     expect(fixture.manager.getSession(bob.id, session.id)).toBeNull();
   });
 
+  test("安全栅格图片可内联预览且其他文件保持下载响应", async () => {
+    const fixture = await createFixture();
+    const login = await loginAs(fixture, "alice", "password-123");
+    const session = fixture.manager.createSession(fixture.userId);
+    const uploadFile = async (file: File) => {
+      const form = new FormData();
+      form.set("file", file);
+      const response = await handleWebChatRequest(
+        new Request(`http://gateway.test/api/chat/sessions/${session.id}/files`, {
+          method: "POST",
+          headers: {
+            cookie: login.cookie,
+            "x-csrf-token": login.csrfToken,
+          },
+          body: form,
+        }),
+        fixture,
+        { remoteAddress: "192.168.1.8" }
+      );
+      expect(response.status).toBe(201);
+      return (await response.json()).file as { id: string };
+    };
+    const image = await uploadFile(
+      new File(["png"], "preview.png", { type: "image/png" })
+    );
+    const text = await uploadFile(
+      new File(["text"], "notes.txt", { type: "text/plain" })
+    );
+    const svg = await uploadFile(
+      new File(["<svg></svg>"], "vector.svg", { type: "image/svg+xml" })
+    );
+
+    const imagePreview = await request(
+      fixture,
+      `/api/chat/files/${image.id}?preview=1`,
+      { cookie: login.cookie }
+    );
+    expect(imagePreview.status).toBe(200);
+    expect(imagePreview.headers.get("content-disposition")).toContain("inline");
+    expect(imagePreview.headers.get("x-content-type-options")).toBe("nosniff");
+
+    const imageDownload = await request(
+      fixture,
+      `/api/chat/files/${image.id}`,
+      { cookie: login.cookie }
+    );
+    expect(imageDownload.headers.get("content-disposition")).toContain(
+      "attachment"
+    );
+
+    for (const file of [text, svg]) {
+      const response = await request(
+        fixture,
+        `/api/chat/files/${file.id}?preview=1`,
+        { cookie: login.cookie }
+      );
+      expect(response.headers.get("content-disposition")).toContain("attachment");
+    }
+  });
+
   test("账户设置 API 读取和保存当前用户默认模型配置", async () => {
     const fixture = await createFixture();
     const login = await loginAs(fixture, "alice", "password-123");

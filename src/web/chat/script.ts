@@ -906,39 +906,119 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     return amount.toFixed(digits).replace(/\.0$/, "") + " " + units[unitIndex];
   }
 
+  function isPreviewableImage(file) {
+    return [
+      "image/png",
+      "image/jpeg",
+      "image/gif",
+      "image/webp",
+      "image/avif"
+    ].includes(String(file && file.mimeType || "").toLowerCase());
+  }
+
+  function fileUrl(file) {
+    return "/api/chat/files/" + encodeURIComponent(file.id);
+  }
+
+  function imagePreviewUrl(file) {
+    var preview = new URL(fileUrl(file), window.location.origin);
+    preview.searchParams.set("preview", "1");
+    return preview.pathname + preview.search;
+  }
+
+  function createFileAttachment(file) {
+    var item = document.createElement("div");
+    item.className = "attachment-file";
+    var icon = document.createElement("span");
+    icon.className = "attachment-file-type";
+    icon.append(byId("fileIconTemplate").content.cloneNode(true));
+    var info = document.createElement("span");
+    info.className = "attachment-info";
+    var name = document.createElement("span");
+    name.className = "attachment-name";
+    name.textContent = file.name;
+    name.title = file.name;
+    var meta = document.createElement("span");
+    meta.className = "attachment-meta";
+    meta.textContent = [
+      formatAttachmentType(file),
+      formatFileSize(file.size)
+    ].filter(Boolean).join(" · ");
+    info.append(name);
+    if (meta.textContent) info.append(meta);
+    var download = document.createElement("a");
+    download.className = "attachment-download tooltip-button";
+    download.href = fileUrl(file);
+    download.title = "下载文件";
+    download.setAttribute("aria-label", "下载 " + file.name);
+    download.setAttribute("data-tooltip", "下载文件");
+    download.setAttribute("download", file.name);
+    download.append(byId("downloadIconTemplate").content.cloneNode(true));
+    item.append(icon, info, download);
+    return item;
+  }
+
+  function openImagePreview(file) {
+    var dialog = byId("imagePreviewDialog");
+    var image = byId("imagePreviewImage");
+    var download = byId("imagePreviewDownload");
+    byId("imagePreviewName").textContent = file.name;
+    image.alt = file.name;
+    image.src = imagePreviewUrl(file);
+    download.href = fileUrl(file);
+    download.setAttribute("download", file.name);
+    download.setAttribute("aria-label", "下载 " + file.name);
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function createImageAttachment(file) {
+    var item = document.createElement("div");
+    item.className = "attachment-image";
+    var previewButton = document.createElement("button");
+    previewButton.className = "attachment-thumbnail";
+    previewButton.type = "button";
+    previewButton.setAttribute("aria-label", "预览 " + file.name);
+    var image = document.createElement("img");
+    image.className = "attachment-thumbnail-image";
+    image.src = imagePreviewUrl(file);
+    image.alt = file.name;
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.addEventListener("error", function () {
+      item.replaceWith(createFileAttachment(file));
+    }, { once: true });
+    var name = document.createElement("span");
+    name.className = "attachment-image-name";
+    name.textContent = file.name;
+    name.title = file.name;
+    previewButton.append(image, name);
+    previewButton.addEventListener("click", function () {
+      openImagePreview(file);
+    });
+    var download = document.createElement("a");
+    download.className = "attachment-image-download tooltip-button";
+    download.href = fileUrl(file);
+    download.title = "下载图片";
+    download.setAttribute("aria-label", "下载 " + file.name);
+    download.setAttribute("data-tooltip", "下载图片");
+    download.setAttribute("download", file.name);
+    download.append(byId("downloadIconTemplate").content.cloneNode(true));
+    download.addEventListener("click", function (event) {
+      event.stopPropagation();
+    });
+    item.append(previewButton, download);
+    return item;
+  }
+
   function createAttachments(attachments) {
     var container = document.createElement("div");
     container.className = "attachments file-attachments";
     attachments.forEach(function (file) {
-      var item = document.createElement("div");
-      item.className = "attachment-file";
-      var icon = document.createElement("span");
-      icon.className = "attachment-file-type";
-      icon.append(byId("fileIconTemplate").content.cloneNode(true));
-      var info = document.createElement("span");
-      info.className = "attachment-info";
-      var name = document.createElement("span");
-      name.className = "attachment-name";
-      name.textContent = file.name;
-      name.title = file.name;
-      var meta = document.createElement("span");
-      meta.className = "attachment-meta";
-      meta.textContent = [
-        formatAttachmentType(file),
-        formatFileSize(file.size)
-      ].filter(Boolean).join(" · ");
-      info.append(name);
-      if (meta.textContent) info.append(meta);
-      var download = document.createElement("a");
-      download.className = "attachment-download tooltip-button";
-      download.href = "/api/chat/files/" + encodeURIComponent(file.id);
-      download.title = "下载文件";
-      download.setAttribute("aria-label", "下载 " + file.name);
-      download.setAttribute("data-tooltip", "下载文件");
-      download.setAttribute("download", file.name);
-      download.append(byId("downloadIconTemplate").content.cloneNode(true));
-      item.append(icon, info, download);
-      container.append(item);
+      container.append(
+        isPreviewableImage(file)
+          ? createImageAttachment(file)
+          : createFileAttachment(file)
+      );
     });
     return container;
   }
@@ -2241,6 +2321,27 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     });
     byId("accountDialogClose").addEventListener("click", function () {
       byId("accountDialog").close();
+    });
+    var imagePreviewDialog = byId("imagePreviewDialog");
+    byId("imagePreviewClose").addEventListener("click", function () {
+      imagePreviewDialog.close();
+    });
+    imagePreviewDialog.addEventListener("click", function (event) {
+      if (event.target === imagePreviewDialog) imagePreviewDialog.close();
+    });
+    imagePreviewDialog.addEventListener("close", function () {
+      var image = byId("imagePreviewImage");
+      image.removeAttribute("src");
+      image.alt = "";
+      byId("imagePreviewName").textContent = "图片预览";
+      var download = byId("imagePreviewDownload");
+      download.href = "#";
+      download.removeAttribute("download");
+    });
+    byId("imagePreviewImage").addEventListener("error", function () {
+      if (!byId("imagePreviewImage").getAttribute("src")) return;
+      imagePreviewDialog.close();
+      showError(new Error("图片预览加载失败。"));
     });
     byId("accountSettingsModelTab").addEventListener("click", function () {
       switchAccountSettingsTab("model");

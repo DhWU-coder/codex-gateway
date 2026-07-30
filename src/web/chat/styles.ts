@@ -471,6 +471,57 @@ button { cursor: pointer; }
 }
 .attachment-download:hover,
 .attachment-download:focus-visible { background: var(--surface-3); color: var(--text); }
+.attachment-image {
+  position: relative;
+  width: 160px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-2);
+}
+.attachment-image:hover { border-color: var(--line-strong); }
+.attachment-thumbnail {
+  width: 100%;
+  display: grid;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.attachment-thumbnail-image {
+  display: block;
+  width: 100%;
+  height: 110px;
+  background: var(--surface-3);
+  object-fit: cover;
+}
+.attachment-image-name {
+  min-width: 0;
+  overflow: hidden;
+  padding: 7px 36px 7px 9px;
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-image-download {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--muted);
+  text-decoration: none;
+}
+.attachment-image-download:hover,
+.attachment-image-download:focus-visible { background: var(--surface-3); color: var(--text); }
 .streaming::after { content: ""; display: inline-block; width: 7px; height: 15px; margin-left: 3px; vertical-align: -2px; background: var(--accent); animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 .trace-card {
@@ -674,6 +725,57 @@ button { cursor: pointer; }
   box-shadow: var(--shadow);
 }
 .drawer-backdrop { display: none; }
+.image-preview-dialog {
+  width: min(960px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.image-preview-dialog::backdrop { background: rgba(0, 0, 0, .72); }
+.image-preview-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  max-height: inherit;
+}
+.image-preview-header {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px 8px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.image-preview-header h2 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.image-preview-actions { display: flex; gap: 6px; }
+.image-preview-actions a { color: var(--text); text-decoration: none; }
+.image-preview-stage {
+  min-height: 0;
+  display: grid;
+  overflow: auto;
+  padding: 16px;
+  place-items: center;
+  background: var(--bg);
+}
+.image-preview-stage img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100dvh - 124px);
+  object-fit: contain;
+}
 .account-dialog {
   width: min(620px, calc(100% - 28px));
   max-height: min(720px, calc(100dvh - 28px));
@@ -742,6 +844,15 @@ button { cursor: pointer; }
   .trace-card.inline { margin-left: 0; }
   .trace-body { padding-left: 14px; }
   .attachment-file { width: 100%; max-width: 100%; }
+  .attachment-image { width: min(150px, calc(50vw - 28px)); }
+  .attachment-thumbnail-image { height: auto; aspect-ratio: 16 / 11; }
+  .image-preview-dialog {
+    width: calc(100vw - 18px);
+    max-height: calc(100dvh - 18px);
+  }
+  .image-preview-header { min-height: 52px; padding-left: 12px; }
+  .image-preview-stage { padding: 10px; }
+  .image-preview-stage img { max-height: calc(100dvh - 90px); }
   .composer-shell { padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); }
   .composer { min-height: 104px; padding: 12px; border-radius: 16px; }
   .composer textarea { min-height: 42px; }

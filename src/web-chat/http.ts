@@ -18,6 +18,14 @@ import {
 } from "../web/chat/page.js";
 import { buildWebChatBootstrap } from "./bootstrap.js";
 
+const INLINE_IMAGE_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+]);
+
 export interface WebChatHttpOptions {
   manager: WebChatManager;
   auth: WebChatAuthService;
@@ -248,12 +256,16 @@ export async function handleWebChatRequest(
         fileDownload[0]
       );
       if (!opened) return jsonResponse({ error: "文件不存在。" }, 404);
+      const inline =
+        url.searchParams.get("preview") === "1" &&
+        INLINE_IMAGE_MIME_TYPES.has(opened.file.mimeType.toLowerCase());
       return new Response(readFileSync(opened.path), {
         headers: {
           "content-type": opened.file.mimeType,
           "content-length": String(opened.file.size),
-          "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(opened.file.name)}`,
+          "content-disposition": `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(opened.file.name)}`,
           "cache-control": "private, no-store",
+          "x-content-type-options": "nosniff",
         },
       });
     }

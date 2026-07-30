@@ -439,6 +439,26 @@ describe("Web Chat 页面", () => {
     expect(html).not.toContain('link.textContent = "↓ " + file.name');
   });
 
+  test("图片附件显示缩略图并支持弹窗查看大图", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain('id="imagePreviewDialog"');
+    expect(html).toContain('id="imagePreviewImage"');
+    expect(html).toContain('id="imagePreviewDownload"');
+    expect(html).toContain("function isPreviewableImage(file)");
+    expect(html).toContain("function createImageAttachment(file)");
+    expect(html).toContain("function createFileAttachment(file)");
+    expect(html).toContain("function openImagePreview(file)");
+    expect(html).toContain('preview.searchParams.set("preview", "1")');
+    expect(html).toContain('image.className = "attachment-thumbnail-image"');
+    expect(html).toContain('item.className = "attachment-image"');
+    expect(html).toContain('image.addEventListener("error"');
+    expect(html).toContain('imagePreviewDialog.addEventListener("click"');
+    expect(html).toContain('imagePreviewDialog.addEventListener("close"');
+    expect(html).toContain(".image-preview-dialog {");
+    expect(html).toContain(".attachment-image {");
+  });
+
   test("所有内联脚本语法有效且 Markdown 不使用 innerHTML", () => {
     const html = renderWebChatPage();
     const scripts = Array.from(

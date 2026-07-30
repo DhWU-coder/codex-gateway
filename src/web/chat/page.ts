@@ -15,6 +15,7 @@ import {
   Sun,
   Trash2,
   Upload,
+  X,
 } from "lucide";
 import { renderWebChatIcon } from "./icons.js";
 import { WEB_CHAT_MARKDOWN_SCRIPT } from "./markdown.js";
@@ -51,6 +52,7 @@ const WEB_CHAT_ICONS = {
   ),
   trash: renderWebChatIcon(Trash2),
   upload: renderWebChatIcon(Upload, "drop-icon"),
+  close: renderWebChatIcon(X),
 };
 
 export function renderWebChatPage(options: WebChatPageOptions = {}): string {
@@ -288,6 +290,24 @@ export function renderWebChatPage(options: WebChatPageOptions = {}): string {
           </div>
         </form>
       </section>
+    </div>
+  </dialog>
+  <dialog class="image-preview-dialog" id="imagePreviewDialog" aria-labelledby="imagePreviewName">
+    <div class="image-preview-shell">
+      <header class="image-preview-header">
+        <h2 id="imagePreviewName">图片预览</h2>
+        <div class="image-preview-actions">
+          <a class="icon-button tooltip-button tooltip-below" id="imagePreviewDownload" href="#" title="下载图片" aria-label="下载图片" data-tooltip="下载图片">
+            ${WEB_CHAT_ICONS.download}
+          </a>
+          <button class="icon-button tooltip-button tooltip-below" id="imagePreviewClose" type="button" title="关闭图片预览" aria-label="关闭图片预览" data-tooltip="关闭">
+            ${WEB_CHAT_ICONS.close}
+          </button>
+        </div>
+      </header>
+      <div class="image-preview-stage">
+        <img id="imagePreviewImage" alt="">
+      </div>
     </div>
   </dialog>
   <div class="error-toast" id="errorToast" role="alert" hidden></div>
