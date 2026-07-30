@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -15,6 +15,25 @@ afterEach(() => {
 });
 
 describe("Web Chat HTTP", () => {
+  test("认证 Session 只写入 HTTP fixture 的临时目录", async () => {
+    const fixture = await createFixture();
+
+    await loginAs(fixture, "alice", "password-123");
+
+    const sessionsPath = join(
+      fixture.gatewayHome,
+      "web-chat",
+      "auth-sessions.json"
+    );
+    expect(existsSync(sessionsPath)).toBe(true);
+    const saved = JSON.parse(readFileSync(sessionsPath, "utf8")) as {
+      sessions: Array<{ userId: string }>;
+    };
+    expect(saved.sessions).toEqual([
+      expect.objectContaining({ userId: fixture.userId }),
+    ]);
+  });
+
   test("开放注册受动态开关保护并在成功后自动登录", async () => {
     const fixture = await createFixture();
     const serverOptions = {
@@ -657,9 +676,11 @@ async function createFixture(authOptions: {
   });
   const auth = new WebChatAuthService({
     userStore: manager.userStore,
+    gatewayHome,
     ...authOptions,
   });
   return {
+    gatewayHome,
     manager,
     auth,
     userId: user.id,

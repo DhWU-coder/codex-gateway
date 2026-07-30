@@ -1,8 +1,16 @@
 export const WEB_CHAT_APP_SCRIPT = String.raw`
 (function () {
   var MAX_PENDING_FILE_BYTES = 30 * 1024 * 1024;
+  var REFERENCE_KIND_ORDER = {
+    plugin: 0,
+    skill: 1,
+    app: 2,
+    file: 3,
+    directory: 4
+  };
   var fileDragDepth = 0;
   var composerIsComposing = false;
+  var composerCompositionEndedAt = 0;
   var state = {
     user: null,
     csrfToken: "",
@@ -81,7 +89,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     setAuthenticated(false);
   }
 
-  async function api(path, options) {
+  async function api(path, options, csrfRetried) {
     var requestOptions = Object.assign({}, options || {});
     requestOptions.headers = new Headers(requestOptions.headers || {});
     if (requestOptions.body && !(requestOptions.body instanceof FormData)) {
@@ -94,6 +102,16 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     var response = await fetch(path, requestOptions);
     var contentType = response.headers.get("content-type") || "";
     var body = contentType.includes("application/json") ? await response.json() : null;
+    if (
+      response.status === 403 && body && body.error === "CSRF 校验失败。"
+      && csrfRetried !== true
+    ) {
+      var sameUser = await refreshCsrfIdentity();
+      if (sameUser) return api(path, options, true);
+      var changedUserError = new Error("登录账户已变化，请重试当前操作。");
+      changedUserError.status = 409;
+      throw changedUserError;
+    }
     if (response.status === 401) resetAuthenticationState();
     if (!response.ok) {
       var error = new Error(body && body.error ? body.error : "请求失败（" + response.status + "）");
@@ -101,6 +119,25 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
       throw error;
     }
     return body;
+  }
+
+  async function refreshCsrfIdentity() {
+    var previousUserId = state.user && state.user.id;
+    var response = await fetch("/api/chat/me");
+    var contentType = response.headers.get("content-type") || "";
+    var body = contentType.includes("application/json") ? await response.json() : null;
+    if (response.status === 401) resetAuthenticationState();
+    if (!response.ok) {
+      var error = new Error(body && body.error ? body.error : "登录状态已失效，请重新登录。");
+      error.status = response.status;
+      throw error;
+    }
+    acceptIdentity(body);
+    if (previousUserId && previousUserId !== body.user.id) {
+      await loadInitialData();
+      return false;
+    }
+    return true;
   }
 
   function showError(error) {
@@ -1262,6 +1299,12 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
             : "文件";
   }
 
+  function referenceKindRank(kind) {
+    return Object.prototype.hasOwnProperty.call(REFERENCE_KIND_ORDER, kind)
+      ? REFERENCE_KIND_ORDER[kind]
+      : 5;
+  }
+
   function pendingFileKey(file) {
     return [file.name, file.size, file.lastModified, file.type].join("\u0000");
   }
@@ -1460,6 +1503,9 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
       ids.add(item.id);
       unique.push(item);
     });
+    unique.sort(function (left, right) {
+      return referenceKindRank(left.kind) - referenceKindRank(right.kind);
+    });
     var items = [];
     if (includeUpload) {
       items.push({
@@ -1467,6 +1513,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
         name: "上传本地文件",
         description: "选择、拖拽或粘贴文件",
         section: "添加",
+        meta: "文件",
         action: function () {
           closeComposerPopovers();
           byId("fileInput").click();
@@ -1479,6 +1526,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
         name: item.name,
         description: item.description || "",
         section: referenceKindLabel(item.kind),
+        meta: referenceKindLabel(item.kind),
         action: function () { selectReference(item); }
       });
     });
@@ -1527,6 +1575,12 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
       name.className = "palette-name";
       name.textContent = item.name;
       button.append(name);
+      if (item.meta) {
+        var meta = document.createElement("span");
+        meta.className = "palette-meta";
+        meta.textContent = item.meta;
+        button.append(meta);
+      }
       if (item.description) {
         var description = document.createElement("span");
         description.className = "palette-description";
@@ -2184,13 +2238,21 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     var composerInput = byId("composerInput");
     composerInput.addEventListener("compositionstart", function () {
       composerIsComposing = true;
+      composerCompositionEndedAt = 0;
     });
     composerInput.addEventListener("compositionend", function () {
       composerIsComposing = false;
+      composerCompositionEndedAt = Date.now();
     });
     composerInput.addEventListener("keydown", function (event) {
       // Safari 结束输入法组合时可能提前清除 isComposing，229 作为兼容兜底。
       if (event.isComposing || composerIsComposing || event.keyCode === 229) return;
+      if (
+        event.key === "Enter" && Date.now() - composerCompositionEndedAt < 200
+      ) {
+        event.preventDefault();
+        return;
+      }
       if (
         (state.activePalette === "commandPalette" || state.activePalette === "referencePalette")
         && event.key === "ArrowDown"

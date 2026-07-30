@@ -213,6 +213,29 @@ describe("Web Chat 页面", () => {
     expect(html).not.toContain("Verbosity 默认");
   });
 
+  test("引用面板按类型排序并在每项右侧显示类型", () => {
+    const html = renderWebChatPage();
+    const order = [
+      "plugin: 0",
+      "skill: 1",
+      "app: 2",
+      "file: 3",
+      "directory: 4",
+    ].map((value) => html.indexOf(value));
+
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect(order).toEqual([...order].sort((left, right) => left - right));
+    expect(html).toContain(
+      "unique.sort(function (left, right) {\n      return referenceKindRank(left.kind) - referenceKindRank(right.kind);"
+    );
+    expect(html).toContain('meta: referenceKindLabel(item.kind)');
+    expect(html).toContain('meta: "\\u6587\\u4EF6"');
+    expect(html).toContain('meta.className = "palette-meta"');
+    expect(html).toContain(
+      ".palette-meta { color: var(--muted); font-size: 11px; font-weight: 700; white-space: nowrap; }"
+    );
+  });
+
   test("新建与发送按钮稳定居中且模型摘要显示实际生效配置", () => {
     const html = renderWebChatPage();
 
@@ -273,8 +296,29 @@ describe("Web Chat 页面", () => {
     expect(html).toContain('addEventListener("compositionstart"');
     expect(html).toContain('addEventListener("compositionend"');
     expect(html).toContain(guard);
+    expect(html).toContain("var composerCompositionEndedAt = 0;");
+    expect(html).toContain("composerCompositionEndedAt = Date.now();");
+    expect(html).toContain(
+      'event.key === "Enter" && Date.now() - composerCompositionEndedAt < 200'
+    );
     expect(guardIndex).toBeGreaterThan(-1);
     expect(sendIndex).toBeGreaterThan(guardIndex);
+  });
+
+  test("CSRF 失配时同步当前身份并且最多重试一次", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain("async function refreshCsrfIdentity()");
+    expect(html).toContain('fetch("/api/chat/me")');
+    expect(html).toContain(
+      'response.status === 403 && body && body.error === "CSRF \\u6821\\u9A8C\\u5931\\u8D25\\u3002"'
+    );
+    expect(html).toContain("&& csrfRetried !== true");
+    expect(html).toContain("return api(path, options, true);");
+    expect(html).toContain("previousUserId !== body.user.id");
+    expect(html).toContain(
+      "\\u767B\\u5F55\\u8D26\\u6237\\u5DF2\\u53D8\\u5316\\uFF0C\\u8BF7\\u91CD\\u8BD5\\u5F53\\u524D\\u64CD\\u4F5C\\u3002"
+    );
   });
 
   test("Trace 归入对应 Codex 回复，完成后自动折叠并保留手动展开能力", () => {

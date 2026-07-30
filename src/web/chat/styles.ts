@@ -556,6 +556,7 @@ button { cursor: pointer; }
 .runtime-row:disabled { cursor: not-allowed; opacity: .45; }
 .palette-name,
 .runtime-row-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 750; }
+.palette-meta { color: var(--muted); font-size: 11px; font-weight: 700; white-space: nowrap; }
 .palette-description,
 .runtime-row-description { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
 .runtime-menu { width: min(430px, 100%); }
