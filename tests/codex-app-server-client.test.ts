@@ -7,6 +7,32 @@ import {
 } from "../src/codex/app-server-client.js";
 
 describe("Codex App Server Client", () => {
+  test("初始化时声明 experimentalApi 能力", async () => {
+    const child = new FakeChildProcess();
+    const client = new CodexAppServerClient({
+      command: "codex",
+      createProcess: () => child,
+    });
+    let initializeRequest: Record<string, unknown> | undefined;
+    child.onRequest((request) => {
+      if (request.method !== "initialize") return;
+      initializeRequest = request;
+      child.respond(request.id as number, {});
+    });
+
+    await client.start();
+
+    expect(initializeRequest).toMatchObject({
+      method: "initialize",
+      params: {
+        capabilities: {
+          experimentalApi: true,
+        },
+      },
+    });
+    await client.stop();
+  });
+
   test("初始化后支持乱序并发响应和通知订阅", async () => {
     const child = new FakeChildProcess();
     const client = new CodexAppServerClient({

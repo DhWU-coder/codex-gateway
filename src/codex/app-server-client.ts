@@ -111,7 +111,9 @@ export class CodexAppServerClient {
           title: "Codex Gateway",
           version: "0.1.0",
         },
-        capabilities: null,
+        capabilities: {
+          experimentalApi: true,
+        },
       });
       if (this.child !== child) throw new Error("App Server 初始化期间已退出。");
       this._ready = true;

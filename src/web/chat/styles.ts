@@ -458,6 +458,7 @@ button { cursor: pointer; }
 .trace-card.failed .trace-status-dot { background: var(--danger); }
 @keyframes pulse { 50% { opacity: .35; } }
 .trace-body { display: grid; gap: 12px; padding: 4px 10px 14px 25px; }
+.trace-error { padding: 9px 10px; border: 1px solid var(--danger); border-radius: 6px; background: var(--danger-soft); color: var(--danger); overflow-wrap: anywhere; }
 .trace-message { color: var(--text); }
 .trace-message .message-body { opacity: .9; }
 .trace-entry-label { margin-bottom: 4px; color: var(--muted); font-size: 12px; font-weight: 700; }

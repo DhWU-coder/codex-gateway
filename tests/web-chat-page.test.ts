@@ -346,6 +346,15 @@ describe("Web Chat 页面", () => {
     expect(html).not.toContain('content: "\\u203A"');
   });
 
+  test("失败 Trace 展开后显示具体错误", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain('trace.status === "failed" && trace.error');
+    expect(html).toContain('error.className = "trace-error"');
+    expect(html).toContain("error.textContent = trace.error");
+    expect(html).toContain(".trace-error");
+  });
+
   test("只包含 Chat API，不暴露管理导航和完整日志能力", () => {
     const html = renderWebChatPage();
 

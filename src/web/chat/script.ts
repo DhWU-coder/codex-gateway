@@ -906,6 +906,12 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     summary.append(dot, text);
     var body = document.createElement("div");
     body.className = "trace-body";
+    if (trace.status === "failed" && trace.error) {
+      var error = document.createElement("div");
+      error.className = "trace-error";
+      error.textContent = trace.error;
+      body.append(error);
+    }
     (trace.entries || []).forEach(function (entry) {
       if (entry.type === "tool_group") {
         body.append(createToolGroupNode(entry));
