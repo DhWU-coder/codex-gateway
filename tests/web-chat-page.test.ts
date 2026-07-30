@@ -459,6 +459,29 @@ describe("Web Chat 页面", () => {
     expect(html).toContain(".attachment-image {");
   });
 
+  test("发送前图片显示本地缩略图并在移除或清空时释放对象 URL", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain('id="closeIconTemplate"');
+    expect(html).toContain("function createPendingImage(file, index)");
+    expect(html).toContain("function getPendingImageUrl(file)");
+    expect(html).toContain("function releasePendingImageUrl(file)");
+    expect(html).toContain("function releaseAllPendingImageUrls()");
+    expect(html).toContain("URL.createObjectURL(file)");
+    expect(html).toContain("URL.revokeObjectURL(url)");
+    expect(html).toContain('item.className = "pending-image"');
+    expect(html).toContain('image.className = "pending-image-thumbnail"');
+    expect(html).toContain(
+      'createPendingRemoveButton(file, index, "pending-image-remove")'
+    );
+    expect(html).toContain("openPendingImagePreview(file)");
+    expect(html).toContain("releasePendingImageUrl(file);");
+    expect(html).toContain("releaseAllPendingImageUrls();");
+    expect(html).toContain(".pending-image {");
+    expect(html).toContain("width: 80px;");
+    expect(html).toContain("height: 80px;");
+  });
+
   test("所有内联脚本语法有效且 Markdown 不使用 innerHTML", () => {
     const html = renderWebChatPage();
     const scripts = Array.from(

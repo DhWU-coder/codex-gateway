@@ -11,6 +11,8 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
   var fileDragDepth = 0;
   var composerIsComposing = false;
   var composerCompositionEndedAt = 0;
+  var pendingImageUrls = new Map();
+  var pendingImagePreviewFailures = new WeakSet();
   var state = {
     user: null,
     csrfToken: "",
@@ -66,6 +68,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     state.commands = [];
     state.capabilities = [];
     state.selectedReferences = [];
+    releaseAllPendingImageUrls();
     state.pendingFiles = [];
     state.notices = [];
     state.sessionSelectionMode = false;
@@ -680,6 +683,8 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
 
   async function openSession(sessionId) {
     var data = await api("/api/chat/sessions/" + encodeURIComponent(sessionId));
+    releaseAllPendingImageUrls();
+    state.pendingFiles = [];
     state.currentSession = data.session;
     state.messages = data.messages && data.messages.messages ? data.messages.messages : [];
     state.traces = data.traces || [];
@@ -690,6 +695,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     state.activities.clear();
     renderSessions();
     renderCurrentSession();
+    renderPendingFiles();
     closeSidebar();
     await loadSessionCapabilities(sessionId);
   }
@@ -913,7 +919,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
       "image/gif",
       "image/webp",
       "image/avif"
-    ].includes(String(file && file.mimeType || "").toLowerCase());
+    ].includes(String(file && (file.mimeType || file.type) || "").toLowerCase());
   }
 
   function fileUrl(file) {
@@ -958,17 +964,28 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     return item;
   }
 
-  function openImagePreview(file) {
+  function showImagePreview(name, previewUrl, downloadUrl) {
     var dialog = byId("imagePreviewDialog");
     var image = byId("imagePreviewImage");
     var download = byId("imagePreviewDownload");
-    byId("imagePreviewName").textContent = file.name;
-    image.alt = file.name;
-    image.src = imagePreviewUrl(file);
-    download.href = fileUrl(file);
-    download.setAttribute("download", file.name);
-    download.setAttribute("aria-label", "下载 " + file.name);
+    byId("imagePreviewName").textContent = name;
+    image.alt = name;
+    image.src = previewUrl;
+    download.hidden = !downloadUrl;
+    if (downloadUrl) {
+      download.href = downloadUrl;
+      download.setAttribute("download", name);
+      download.setAttribute("aria-label", "下载 " + name);
+    } else {
+      download.href = "#";
+      download.removeAttribute("download");
+      download.setAttribute("aria-label", "下载图片");
+    }
     if (!dialog.open) dialog.showModal();
+  }
+
+  function openImagePreview(file) {
+    showImagePreview(file.name, imagePreviewUrl(file), fileUrl(file));
   }
 
   function createImageAttachment(file) {
@@ -1380,26 +1397,115 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     await loadSessions();
   }
 
+  function getPendingImageUrl(file) {
+    if (pendingImageUrls.has(file)) return pendingImageUrls.get(file);
+    try {
+      var url = URL.createObjectURL(file);
+      pendingImageUrls.set(file, url);
+      return url;
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function releasePendingImageUrl(file) {
+    var url = pendingImageUrls.get(file);
+    if (!url) return;
+    URL.revokeObjectURL(url);
+    pendingImageUrls.delete(file);
+  }
+
+  function releaseAllPendingImageUrls() {
+    pendingImageUrls.forEach(function (url) {
+      URL.revokeObjectURL(url);
+    });
+    pendingImageUrls.clear();
+  }
+
+  function removePendingFile(file, index) {
+    releasePendingImageUrl(file);
+    var resolvedIndex = state.pendingFiles[index] === file
+      ? index
+      : state.pendingFiles.indexOf(file);
+    if (resolvedIndex >= 0) state.pendingFiles.splice(resolvedIndex, 1);
+    renderPendingFiles();
+  }
+
+  function createPendingRemoveButton(file, index, className) {
+    var remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = className;
+    remove.title = "移除附件";
+    remove.setAttribute("aria-label", "移除 " + file.name);
+    remove.append(byId("closeIconTemplate").content.cloneNode(true));
+    remove.addEventListener("click", function () {
+      removePendingFile(file, index);
+    });
+    return remove;
+  }
+
+  function createPendingFile(file, index) {
+    var item = document.createElement("span");
+    item.className = "pending-file";
+    var name = document.createElement("span");
+    name.textContent = file.name;
+    name.title = file.name;
+    item.append(
+      name,
+      createPendingRemoveButton(file, index, "icon-button small")
+    );
+    return item;
+  }
+
+  function openPendingImagePreview(file) {
+    var url = getPendingImageUrl(file);
+    if (!url) {
+      showError(new Error("图片预览加载失败。"));
+      return;
+    }
+    showImagePreview(file.name, url, null);
+  }
+
+  function createPendingImage(file, index) {
+    var url = getPendingImageUrl(file);
+    if (!url) return createPendingFile(file, index);
+    var item = document.createElement("div");
+    item.className = "pending-image";
+    item.title = file.name;
+    var preview = document.createElement("button");
+    preview.type = "button";
+    preview.className = "pending-image-preview";
+    preview.setAttribute("aria-label", "预览 " + file.name);
+    var image = document.createElement("img");
+    image.className = "pending-image-thumbnail";
+    image.src = url;
+    image.alt = file.name;
+    image.decoding = "async";
+    image.addEventListener("error", function () {
+      pendingImagePreviewFailures.add(file);
+      releasePendingImageUrl(file);
+      item.replaceWith(createPendingFile(file, index));
+    }, { once: true });
+    preview.append(image);
+    preview.addEventListener("click", function () {
+      openPendingImagePreview(file);
+    });
+    item.append(
+      preview,
+      createPendingRemoveButton(file, index, "pending-image-remove")
+    );
+    return item;
+  }
+
   function renderPendingFiles() {
     var container = byId("pendingFiles");
     var fragment = document.createDocumentFragment();
     state.pendingFiles.forEach(function (file, index) {
-      var item = document.createElement("span");
-      item.className = "pending-file";
-      var name = document.createElement("span");
-      name.textContent = file.name;
-      var remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "icon-button small";
-      remove.title = "移除附件";
-      remove.setAttribute("aria-label", "移除附件");
-      remove.textContent = "×";
-      remove.addEventListener("click", function () {
-        state.pendingFiles.splice(index, 1);
-        renderPendingFiles();
-      });
-      item.append(name, remove);
-      fragment.append(item);
+      fragment.append(
+        isPreviewableImage(file) && !pendingImagePreviewFailures.has(file)
+          ? createPendingImage(file, index)
+          : createPendingFile(file, index)
+      );
     });
     container.replaceChildren(fragment);
   }
@@ -1821,6 +1927,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
       });
       textarea.value = "";
       textarea.style.height = "";
+      releaseAllPendingImageUrls();
       state.pendingFiles = [];
       state.selectedReferences = [];
       renderPendingFiles();
@@ -2336,6 +2443,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
       byId("imagePreviewName").textContent = "图片预览";
       var download = byId("imagePreviewDownload");
       download.href = "#";
+      download.hidden = false;
       download.removeAttribute("download");
     });
     byId("imagePreviewImage").addEventListener("error", function () {

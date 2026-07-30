@@ -179,6 +179,7 @@ export function renderWebChatPage(options: WebChatPageOptions = {}): string {
     <template id="sessionMoreIconTemplate">${WEB_CHAT_ICONS.more}</template>
     <template id="fileIconTemplate">${WEB_CHAT_ICONS.file}</template>
     <template id="downloadIconTemplate">${WEB_CHAT_ICONS.download}</template>
+    <template id="closeIconTemplate">${WEB_CHAT_ICONS.close}</template>
     <button class="drawer-backdrop" id="drawerBackdrop" type="button" aria-label="关闭对话列表"></button>
 
     <main class="workspace" id="chatWorkspace">

@@ -610,6 +610,50 @@ button { cursor: pointer; }
 .reference-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 250px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
 .pending-file span,
 .reference-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pending-image {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-2);
+}
+.pending-image:hover { border-color: var(--line-strong); }
+.pending-image-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.pending-image-thumbnail {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--surface-3);
+  object-fit: cover;
+}
+.pending-image-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, #fff 55%, transparent);
+  border-radius: 50%;
+  background: rgba(16, 20, 23, .78);
+  color: #fff;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, .25);
+}
+.pending-image-remove:hover,
+.pending-image-remove:focus-visible { background: rgba(16, 20, 23, .96); }
+.pending-image-remove .button-icon { width: 15px; height: 15px; }
 .reference-kind { color: var(--accent); font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .composer-stack { position: relative; }
 .composer-popover {
