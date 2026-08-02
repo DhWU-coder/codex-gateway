@@ -530,7 +530,10 @@ describe("web server", () => {
     expect(publicText).not.toContain("secret-primary");
     expect(JSON.parse(publicText)).toMatchObject({
       configPath: fixture.configPath,
-      codex: { command: "codex", model: "gpt-5" },
+      codex: {
+        command: process.platform === "win32" ? "codex.cmd" : "codex",
+        model: "gpt-5",
+      },
       channels: { feishu: { configuredAccounts: 1, enabledAccounts: 1 } },
     });
     expect(accountsText).not.toContain("secret-primary");

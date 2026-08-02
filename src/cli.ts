@@ -57,6 +57,7 @@ webChat:
   registrationEnabled: false
 
 codex:
+  # Windows 会自动将 codex 解析为 codex.cmd；macOS/Linux 保持 codex
   command: codex
   model: gpt-5
   sandbox: danger-full-access

@@ -2,6 +2,37 @@ import { describe, expect, test } from "bun:test";
 import { loadGatewayConfigFromObject } from "../src/config.js";
 
 describe("gateway config", () => {
+  test("uses the Windows Codex command shim without changing other platforms or custom commands", () => {
+    expect(
+      loadGatewayConfigFromObject(
+        { codex: { command: "codex" } },
+        { homeDir: "C:/Users/tester", env: {}, platform: "win32" }
+      ).codex.command
+    ).toBe("codex.cmd");
+    expect(
+      loadGatewayConfigFromObject(
+        {},
+        {
+          homeDir: "C:/Users/tester",
+          env: { CODEX_COMMAND: "codex" },
+          platform: "win32",
+        }
+      ).codex.command
+    ).toBe("codex.cmd");
+    expect(
+      loadGatewayConfigFromObject(
+        { codex: { command: "codex" } },
+        { homeDir: "/Users/tester", env: {}, platform: "darwin" }
+      ).codex.command
+    ).toBe("codex");
+    expect(
+      loadGatewayConfigFromObject(
+        { codex: { command: "custom-codex" } },
+        { homeDir: "C:/Users/tester", env: {}, platform: "win32" }
+      ).codex.command
+    ).toBe("custom-codex");
+  });
+
   test("defaults the service host to loopback and accepts an explicit LAN listener", () => {
     expect(
       loadGatewayConfigFromObject({}, { homeDir: "/Users/tester", env: {} }).service.host

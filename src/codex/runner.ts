@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CodexSandboxMode } from "../config.js";
+import { getWindowsHideSpawnOptions } from "../process-options.js";
 import type { CodexReasoningEffort, CodexVerbosity } from "./runtime-settings.js";
 import {
   type CodexProgressEvent,
@@ -170,6 +171,7 @@ async function runChildProcess(
     cwd: command.cwd,
     env: command.env,
     stdio: "pipe",
+    ...getWindowsHideSpawnOptions(),
   });
 
   if (signal?.aborted) child.kill("SIGTERM");

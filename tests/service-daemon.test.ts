@@ -126,7 +126,9 @@ describe("服务 Daemon 配置热更新", () => {
         logPath: expect.stringContaining("service.log"),
       });
       expect(webOptions?.configReloadStateProvider?.()).toEqual({ status: "idle" });
-      expect(modelCatalogCommand).toBe("codex");
+      expect(modelCatalogCommand).toBe(
+        process.platform === "win32" ? "codex.cmd" : "codex"
+      );
       expect(channelModelCatalogProvider).toBe(webOptions?.modelCatalogProvider);
       expect(channelWebChatManager).toBe(webOptions?.webChatManager);
       expect(webOptions?.webChatRegistrationEnabledProvider?.()).toBe(false);

@@ -1,6 +1,7 @@
 import { closeSync, mkdirSync, openSync } from "node:fs";
 import { dirname } from "node:path";
 import { spawn } from "node:child_process";
+import { getWindowsHideSpawnOptions } from "../process-options.js";
 
 export interface BuildDaemonArgsOptions {
   cwd: string;
@@ -49,6 +50,7 @@ export function spawnDetachedServiceRestart(options: SpawnRestartOptions): numbe
         detached: true,
         env: options.env ?? process.env,
         stdio: ["ignore", logFd, logFd],
+        ...getWindowsHideSpawnOptions(),
       }
     );
     child.unref();
@@ -86,6 +88,7 @@ export function spawnDetachedServiceDaemon(options: SpawnDaemonOptions): number 
       detached: true,
       env: options.env ?? process.env,
       stdio: ["ignore", logFd, logFd],
+      ...getWindowsHideSpawnOptions(),
     }
   );
   child.unref();

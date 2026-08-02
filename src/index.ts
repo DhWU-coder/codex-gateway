@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createExampleConfig, parseCliArgs, renderHelp } from "./cli.js";
 import { loadGatewayConfig } from "./config.js";
+import { getWindowsHideSpawnOptions } from "./process-options.js";
 import { resolveConfigPath, resolveDefaultConfigPath } from "./paths.js";
 import {
   formatStartResult,
@@ -74,6 +75,7 @@ async function runDoctor(configPath: string | undefined): Promise<void> {
   const command = config.codex.command || "codex";
   const result = spawnSync(command, ["--version"], {
     encoding: "utf-8",
+    ...getWindowsHideSpawnOptions(),
   });
   const version = result.error
     ? `不可用：${result.error.message}`

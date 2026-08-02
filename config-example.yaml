@@ -12,6 +12,7 @@ webChat:
   registrationEnabled: false
 
 codex:
+  # Windows 会自动将 codex 解析为 codex.cmd；macOS/Linux 保持 codex
   command: codex
   model: gpt-5
   # 可选：none、minimal、low、medium、high、xhigh、max、ultra；实际支持项取决于模型

@@ -85,6 +85,7 @@ export interface LoadGatewayConfigOptions {
   projectRoot?: string;
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
+  platform?: NodeJS.Platform;
 }
 
 export function loadGatewayConfig(options: LoadGatewayConfigOptions = {}): GatewayConfig {
@@ -101,6 +102,7 @@ export function loadGatewayConfigFromObject(
 ): GatewayConfig {
   const env = options.env ?? process.env;
   const homeDir = options.homeDir;
+  const platform = options.platform ?? process.platform;
   const raw = asRecord(rawInput);
   const serviceRaw = asRecord(raw.service);
   const webChatRaw = asRecord(raw.webChat);
@@ -111,7 +113,7 @@ export function loadGatewayConfigFromObject(
   const serviceCwd =
     expandHomePath(readString(serviceRaw.cwd), homeDir) ??
     resolveDefaultWorkspacePath({ env, homeDir });
-  const codex = loadCodexConfig(codexRaw, env);
+  const codex = loadCodexConfig(codexRaw, env, platform);
   const accounts = loadFeishuAccounts({
     raw: feishuRaw,
     env,
@@ -144,9 +146,17 @@ function normalizeServiceHost(value: string | undefined): string {
   return value === "0.0.0.0" ? value : "127.0.0.1";
 }
 
-function loadCodexConfig(raw: Record<string, unknown>, env: NodeJS.ProcessEnv): CodexConfig {
+function loadCodexConfig(
+  raw: Record<string, unknown>,
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform
+): CodexConfig {
+  const configuredCommand = readString(raw.command) || env.CODEX_COMMAND || "codex";
   return {
-    command: readString(raw.command) || env.CODEX_COMMAND || "codex",
+    command:
+      platform === "win32" && configuredCommand.toLowerCase() === "codex"
+        ? "codex.cmd"
+        : configuredCommand,
     model: readString(raw.model) || env.CODEX_MODEL || undefined,
     reasoningEffort: normalizeCodexReasoningEffort(raw.reasoningEffort),
     fast: readBoolean(raw.fast),

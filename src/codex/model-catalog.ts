@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
+import { getWindowsHideSpawnOptions } from "../process-options.js";
 import {
   type CodexReasoningEffort,
   type CodexVerbosity,
@@ -88,6 +89,7 @@ async function readCodexCatalogSnapshot(
       child = spawnProcess(command, args, {
         ...(options.cwd ? { cwd: options.cwd } : {}),
         stdio: ["pipe", "pipe", "pipe"],
+        ...getWindowsHideSpawnOptions(),
       }) as ChildProcessWithoutNullStreams;
     } catch (error) {
       reject(new Error(`无法启动 Codex 模型目录：${formatError(error)}`));

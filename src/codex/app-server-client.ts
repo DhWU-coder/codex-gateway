@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
+import { getWindowsHideSpawnOptions } from "../process-options.js";
 import type {
   AppServerInitializeResponse,
   AppServerNotification,
@@ -132,6 +133,7 @@ export class CodexAppServerClient {
       cwd: this.options.cwd,
       env: this.options.env ?? process.env,
       stdio: "pipe",
+      ...getWindowsHideSpawnOptions(),
     });
   }
 
