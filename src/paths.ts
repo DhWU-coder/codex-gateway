@@ -4,6 +4,12 @@ import { fileURLToPath } from "node:url";
 
 const INSTALLED_PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+export interface GatewayPathInput {
+  env?: NodeJS.ProcessEnv;
+  homeDir?: string;
+  projectRoot?: string;
+}
+
 export function expandHomePath(value: string | undefined, homeDir = homedir()): string | undefined {
   if (!value) return undefined;
   if (value === "~") return homeDir;
@@ -11,10 +17,13 @@ export function expandHomePath(value: string | undefined, homeDir = homedir()): 
   return value;
 }
 
-export function resolveGatewayHome(input?: { env?: NodeJS.ProcessEnv; homeDir?: string }): string {
+export function resolveGatewayHome(input?: GatewayPathInput): string {
   const env = input?.env ?? process.env;
   const homeDir = input?.homeDir ?? homedir();
-  return expandHomePath(env.CODEX_GATEWAY_HOME, homeDir) ?? join(homeDir, ".codex-gateway");
+  return (
+    expandHomePath(env.CODEX_GATEWAY_HOME, homeDir) ??
+    join(resolve(input?.projectRoot ?? INSTALLED_PROJECT_ROOT), ".codex-gateway")
+  );
 }
 
 export function resolveDefaultConfigPath(input?: {
@@ -33,64 +42,52 @@ export function resolveConfigPath(
     : resolveDefaultConfigPath({ projectRoot: input?.projectRoot });
 }
 
-export function resolveDefaultWorkspacePath(input?: {
-  env?: NodeJS.ProcessEnv;
-  homeDir?: string;
-  accountId?: string;
-}): string {
+export function resolveDefaultWorkspacePath(
+  input?: GatewayPathInput & { accountId?: string }
+): string {
   const base = join(resolveGatewayHome(input), "workspace");
   return input?.accountId ? join(base, input.accountId) : base;
 }
 
-export function resolveDefaultHistoryPath(input?: {
-  env?: NodeJS.ProcessEnv;
-  homeDir?: string;
-  accountId?: string;
-}): string {
+export function resolveDefaultHistoryPath(
+  input?: GatewayPathInput & { accountId?: string }
+): string {
   const accountId = input?.accountId ?? "default";
   return join(resolveGatewayHome(input), "channels", "feishu", accountId, "sessions");
 }
 
-export function resolveDefaultFeishuInstructionsPath(input?: {
-  env?: NodeJS.ProcessEnv;
-  homeDir?: string;
-  accountId?: string;
-}): string {
+export function resolveDefaultFeishuInstructionsPath(
+  input?: GatewayPathInput & { accountId?: string }
+): string {
   const accountId = input?.accountId ?? "default";
   return join(resolveGatewayHome(input), "channels", "feishu", accountId, "AGENTS.md");
 }
 
-export function resolveWebChatUsersPath(input?: {
-  env?: NodeJS.ProcessEnv;
-  homeDir?: string;
-}): string {
+export function resolveWebChatUsersPath(input?: GatewayPathInput): string {
   return join(resolveGatewayHome(input), "web-chat", "users.json");
 }
 
-export function resolveWebChatAuthSessionsPath(input?: {
-  env?: NodeJS.ProcessEnv;
-  homeDir?: string;
-}): string {
+export function resolveWebChatAuthSessionsPath(input?: GatewayPathInput): string {
   return join(resolveGatewayHome(input), "web-chat", "auth-sessions.json");
 }
 
 export function resolveWebChatUserRoot(
   userId: string,
-  input?: { env?: NodeJS.ProcessEnv; homeDir?: string }
+  input?: GatewayPathInput
 ): string {
   return join(resolveGatewayHome(input), "channels", "web", safePathSegment(userId));
 }
 
 export function resolveWebChatWorkspacePath(
   userId: string,
-  input?: { env?: NodeJS.ProcessEnv; homeDir?: string }
+  input?: GatewayPathInput
 ): string {
   return join(resolveWebChatUserRoot(userId, input), "workspace");
 }
 
 export function resolveWebChatSessionsPath(
   userId: string,
-  input?: { env?: NodeJS.ProcessEnv; homeDir?: string }
+  input?: GatewayPathInput
 ): string {
   return join(resolveWebChatUserRoot(userId, input), "sessions");
 }

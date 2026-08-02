@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { join, resolve } from "node:path";
 import { loadGatewayConfigFromObject } from "../src/config.js";
 
 describe("gateway config", () => {
@@ -68,6 +69,35 @@ describe("gateway config", () => {
     });
   });
 
+  test("resolves relative data paths against the config project", () => {
+    const config = loadGatewayConfigFromObject(
+      {
+        service: { cwd: "./.codex-gateway/workspace" },
+        channels: {
+          feishu: {
+            accounts: [
+              {
+                id: "team",
+                enabled: true,
+                cwd: "./.codex-gateway/workspace/team",
+                historyBaseDir: "./.codex-gateway/channels/feishu/team/sessions",
+              },
+            ],
+          },
+        },
+      },
+      { projectRoot: "/tmp/codex-gateway", homeDir: "/Users/tester", env: {} }
+    );
+
+    expect(config.service.cwd).toBe(resolve("/tmp/codex-gateway/.codex-gateway/workspace"));
+    expect(config.channels.feishu.accounts[0]).toMatchObject({
+      cwd: resolve("/tmp/codex-gateway/.codex-gateway/workspace/team"),
+      historyBaseDir: resolve(
+        "/tmp/codex-gateway/.codex-gateway/channels/feishu/team/sessions"
+      ),
+    });
+  });
+
   test("respects explicit restricted Codex settings", () => {
     const config = loadGatewayConfigFromObject(
       {
@@ -125,19 +155,20 @@ describe("gateway config", () => {
       },
       {
         homeDir: "/Users/tester",
+        projectRoot: "/tmp/codex-gateway",
         env: {},
       }
     );
 
-    expect(config.service.cwd).toBe("/Users/tester/codex-work");
+    expect(config.service.cwd).toBe(join("/Users/tester", "codex-work"));
     expect(config.codex.model).toBe("gpt-5");
     expect(config.channels.feishu.accounts).toHaveLength(2);
     expect(config.channels.feishu.accounts[0]).toMatchObject({
       id: "personal",
       enabled: true,
-      cwd: "/Users/tester/.codex-gateway/workspace/personal",
+      cwd: resolve("/tmp/codex-gateway/.codex-gateway/workspace/personal"),
       instructionsPath:
-        "/Users/tester/.codex-gateway/channels/feishu/personal/AGENTS.md",
+        resolve("/tmp/codex-gateway/.codex-gateway/channels/feishu/personal/AGENTS.md"),
       model: "gpt-5",
       reasoningEffort: "medium",
       fast: true,
@@ -150,7 +181,9 @@ describe("gateway config", () => {
     expect(config.channels.feishu.accounts[1]).toMatchObject({
       id: "team",
       cwd: "/tmp/team",
-      instructionsPath: "/Users/tester/.codex-gateway/channels/feishu/team/AGENTS.md",
+      instructionsPath: resolve(
+        "/tmp/codex-gateway/.codex-gateway/channels/feishu/team/AGENTS.md"
+      ),
       model: "gpt-5-codex",
       reasoningEffort: "low",
       fast: false,

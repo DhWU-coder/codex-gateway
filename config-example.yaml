@@ -5,7 +5,7 @@ service:
   # 默认只允许本机访问；改为 0.0.0.0 后开放局域网 Chat
   host: 127.0.0.1
   port: 18788
-  cwd: ~/.codex-gateway/workspace
+  cwd: ./.codex-gateway/workspace
 
 webChat:
   # 开放注册默认关闭
@@ -41,8 +41,8 @@ channels:
         reasoningEffort: high
         fast: true
         verbosity: medium
-        cwd: ~/.codex-gateway/workspace/donghao
-        historyBaseDir: ~/.codex-gateway/channels/feishu/donghao/sessions
+        cwd: ./.codex-gateway/workspace/donghao
+        historyBaseDir: ./.codex-gateway/channels/feishu/donghao/sessions
         # 是否把 Codex 的实时文本过程合并后回复到飞书；也可在 Web UI 临时切换
         sendProgressReplies: false
         # 同一飞书 message_id 在窗口内只处理一次，默认保留 7 天

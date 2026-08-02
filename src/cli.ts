@@ -51,7 +51,7 @@ export function createExampleConfig(): string {
 service:
   host: 127.0.0.1
   port: 18788
-  cwd: ~/.codex-gateway/workspace
+  cwd: ./.codex-gateway/workspace
 
 webChat:
   registrationEnabled: false
@@ -76,8 +76,8 @@ channels:
         botOpenId: ou_xxx
         domain: feishu
         model: gpt-5
-        cwd: ~/.codex-gateway/workspace/donghao
-        historyBaseDir: ~/.codex-gateway/channels/feishu/donghao/sessions
+        cwd: ./.codex-gateway/workspace/donghao
+        historyBaseDir: ./.codex-gateway/channels/feishu/donghao/sessions
         sendProgressReplies: false
         messageDedupeTtlMs: 604800000
         history:

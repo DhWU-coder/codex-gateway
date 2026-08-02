@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { parse } from "yaml";
 import {
   type CodexReasoningEffort,
@@ -89,11 +90,15 @@ export interface LoadGatewayConfigOptions {
 }
 
 export function loadGatewayConfig(options: LoadGatewayConfigOptions = {}): GatewayConfig {
-  const configPath =
+  const configPath = resolve(
     options.configPath ??
-    resolveDefaultConfigPath({ projectRoot: options.projectRoot });
+      resolveDefaultConfigPath({ projectRoot: options.projectRoot })
+  );
   const raw = existsSync(configPath) ? parse(readFileSync(configPath, "utf-8")) : {};
-  return loadGatewayConfigFromObject(raw, options);
+  return loadGatewayConfigFromObject(raw, {
+    ...options,
+    projectRoot: options.projectRoot ?? dirname(configPath),
+  });
 }
 
 export function loadGatewayConfigFromObject(
@@ -102,6 +107,7 @@ export function loadGatewayConfigFromObject(
 ): GatewayConfig {
   const env = options.env ?? process.env;
   const homeDir = options.homeDir;
+  const projectRoot = options.projectRoot ?? dirname(resolveDefaultConfigPath());
   const platform = options.platform ?? process.platform;
   const raw = asRecord(rawInput);
   const serviceRaw = asRecord(raw.service);
@@ -111,13 +117,14 @@ export function loadGatewayConfigFromObject(
   const feishuRaw = asRecord(channelsRaw.feishu);
 
   const serviceCwd =
-    expandHomePath(readString(serviceRaw.cwd), homeDir) ??
-    resolveDefaultWorkspacePath({ env, homeDir });
+    resolveConfiguredPath(readString(serviceRaw.cwd), homeDir, projectRoot) ??
+    resolveDefaultWorkspacePath({ env, homeDir, projectRoot });
   const codex = loadCodexConfig(codexRaw, env, platform);
   const accounts = loadFeishuAccounts({
     raw: feishuRaw,
     env,
     homeDir,
+    projectRoot,
     defaultModel: codex.model,
     defaultReasoningEffort: codex.reasoningEffort,
     defaultFast: codex.fast,
@@ -175,6 +182,7 @@ function loadFeishuAccounts(input: {
   raw: Record<string, unknown>;
   env: NodeJS.ProcessEnv;
   homeDir?: string;
+  projectRoot: string;
   defaultModel?: string;
   defaultReasoningEffort?: CodexReasoningEffort;
   defaultFast?: boolean;
@@ -186,6 +194,7 @@ function loadFeishuAccounts(input: {
       normalizeFeishuAccount(asRecord(accountRaw), {
         env: input.env,
         homeDir: input.homeDir,
+        projectRoot: input.projectRoot,
         defaultModel: input.defaultModel,
         defaultReasoningEffort: input.defaultReasoningEffort,
         defaultFast: input.defaultFast,
@@ -201,6 +210,7 @@ function normalizeFeishuAccount(
   input: {
     env: NodeJS.ProcessEnv;
     homeDir?: string;
+    projectRoot: string;
     defaultModel?: string;
     defaultReasoningEffort?: CodexReasoningEffort;
     defaultFast?: boolean;
@@ -215,10 +225,11 @@ function normalizeFeishuAccount(
   const historyRaw = asRecord(raw.history);
   const summaryRaw = asRecord(raw.summary);
   const cwd =
-    expandHomePath(readString(raw.cwd), input.homeDir) ??
+    resolveConfiguredPath(readString(raw.cwd), input.homeDir, input.projectRoot) ??
     resolveDefaultWorkspacePath({
       env: input.env,
       homeDir: input.homeDir,
+      projectRoot: input.projectRoot,
       accountId: id === "default" ? undefined : id,
     });
 
@@ -240,11 +251,17 @@ function normalizeFeishuAccount(
     verbosity: normalizeCodexVerbosity(raw.verbosity) ?? input.defaultVerbosity,
     cwd,
     historyBaseDir:
-      expandHomePath(readString(raw.historyBaseDir), input.homeDir) ??
-      resolveDefaultHistoryPath({ env: input.env, homeDir: input.homeDir, accountId: id }),
+      resolveConfiguredPath(readString(raw.historyBaseDir), input.homeDir, input.projectRoot) ??
+      resolveDefaultHistoryPath({
+        env: input.env,
+        homeDir: input.homeDir,
+        projectRoot: input.projectRoot,
+        accountId: id,
+      }),
     instructionsPath: resolveDefaultFeishuInstructionsPath({
       env: input.env,
       homeDir: input.homeDir,
+      projectRoot: input.projectRoot,
       accountId: id,
     }),
     sendProgressReplies: readBoolean(raw.sendProgressReplies) ?? false,
@@ -260,6 +277,16 @@ function normalizeFeishuAccount(
     messageDedupeTtlMs:
       readPositiveInteger(raw.messageDedupeTtlMs) ?? 7 * 24 * 60 * 60 * 1000,
   };
+}
+
+function resolveConfiguredPath(
+  value: string | undefined,
+  homeDir: string | undefined,
+  projectRoot: string
+): string | undefined {
+  const expanded = expandHomePath(value, homeDir);
+  if (!expanded) return undefined;
+  return isAbsolute(expanded) ? expanded : resolve(projectRoot, expanded);
 }
 
 export function normalizeAccountId(value: string): string {

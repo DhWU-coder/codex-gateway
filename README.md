@@ -99,7 +99,7 @@ webChat:
 
 本机管理员始终可以在“频道 > Web Chat”中创建、停用、重置密码或删除用户。远程浏览器不能访问用户管理接口。
 
-Web Chat 登录 Session 会保存到 `~/.codex-gateway/web-chat/auth-sessions.json`，重启服务后保持登录。文件只保存 Session Token 的 SHA-256 哈希，不保存浏览器 Cookie 中的原始 Token；退出登录只撤销当前浏览器，修改密码、管理员重置密码、停用或删除用户会撤销该用户的全部登录。Chat API 返回 `401` 时，页面会清空旧身份和对话缓存并自动返回登录页。
+Web Chat 登录 Session 会保存到项目根目录的 `.codex-gateway/web-chat/auth-sessions.json`，重启服务后保持登录。文件只保存 Session Token 的 SHA-256 哈希，不保存浏览器 Cookie 中的原始 Token；退出登录只撤销当前浏览器，修改密码、管理员重置密码、停用或删除用户会撤销该用户的全部登录。Chat API 返回 `401` 时，页面会清空旧身份和对话缓存并自动返回登录页。
 
 局域网用户访问启动输出中的 `http://<局域网 IP>:18788/chat`，登录后可以：
 
@@ -149,7 +149,7 @@ codex-gateway status
 codex-gateway stop
 ```
 
-服务状态写入 `~/.codex-gateway/service.json`，日志写入 `~/.codex-gateway/logs/service.log`。首次启动时如果默认端口被其他程序占用，会自动顺延到下一个可用端口；执行 `restart` 时会等待原服务释放配置端口并在同一端口恢复监听，避免已打开的 Chat 页面失效。
+Gateway 的默认数据根目录是当前项目下的 `.codex-gateway/`；服务状态写入 `.codex-gateway/service.json`，日志写入 `.codex-gateway/logs/service.log`，Web Chat 与飞书的频道数据写入 `.codex-gateway/channels/`。可通过环境变量 `CODEX_GATEWAY_HOME` 显式覆盖数据根目录。首次启动时如果默认端口被其他程序占用，会自动顺延到下一个可用端口；执行 `restart` 时会等待原服务释放配置端口并在同一端口恢复监听，避免已打开的 Chat 页面失效。
 
 ## 配置
 
@@ -215,7 +215,7 @@ summary:
   concurrency: 5
 ```
 
-飞书事件会在 3 秒内完成确认，Codex 在后台继续处理。已领取的 `message_id` 默认在 `~/.codex-gateway/channels/feishu/<accountId>/handled-messages.json` 中保留 7 天，服务重启后仍会拦截飞书重投；`messageDedupeTtlMs` 可调整保留时间。
+飞书事件会在 3 秒内完成确认，Codex 在后台继续处理。已领取的 `message_id` 默认在项目根目录的 `.codex-gateway/channels/feishu/<accountId>/handled-messages.json` 中保留 7 天，服务重启后仍会拦截飞书重投；`messageDedupeTtlMs` 可调整保留时间。
 
 `history.maxSessions` 超限时会删除最旧的非当前归档。会话元信息、索引和摘要使用原子写入；索引或当前指针损坏时会从归档目录自动恢复。
 
@@ -224,7 +224,7 @@ summary:
 每个飞书账户启动时都会自动创建固定路径的空文件：
 
 ```text
-~/.codex-gateway/channels/feishu/<accountId>/AGENTS.md
+$PROJECT/.codex-gateway/channels/feishu/<accountId>/AGENTS.md
 ```
 
 文件默认存在但内容为空，空文件不会给 Codex 增加额外指令。可在 Web UI 的频道账户卡片中点击“指令”查看路径、编辑、清空或保存；路径由账户 ID 推导，不能通过 `config.yaml` 修改。文件最大为 32 KiB，保存后从该账户的下一条消息开始生效，已有 Codex session 无需重建。

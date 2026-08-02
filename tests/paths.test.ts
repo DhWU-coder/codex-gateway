@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { join, resolve } from "node:path";
 import {
   resolveConfigPath,
   resolveDefaultConfigPath,
+  resolveGatewayHome,
   resolveWebChatAuthSessionsPath,
   resolveWebChatSessionsPath,
   resolveWebChatUserRoot,
@@ -12,38 +14,54 @@ import {
 describe("paths", () => {
   test("defaults config path to project config.yaml", () => {
     expect(resolveDefaultConfigPath({ projectRoot: "/tmp/codex-gateway" })).toBe(
-      "/tmp/codex-gateway/config.yaml"
+      resolve("/tmp/codex-gateway/config.yaml")
     );
     expect(
       resolveConfigPath(undefined, {
         cwd: "/tmp/caller",
         projectRoot: "/tmp/codex-gateway",
       })
-    ).toBe("/tmp/codex-gateway/config.yaml");
+    ).toBe(resolve("/tmp/codex-gateway/config.yaml"));
   });
 
   test("resolves relative config override against the current project", () => {
     expect(resolveConfigPath("configs/local.yaml", { cwd: "/tmp/codex-gateway" })).toBe(
-      "/tmp/codex-gateway/configs/local.yaml"
+      resolve("/tmp/codex-gateway/configs/local.yaml")
     );
   });
 
-  test("derives Web Chat data paths from gateway home and immutable user id", () => {
-    const input = { homeDir: "/Users/tester", env: {} };
+  test("defaults gateway data and Web Chat paths to the project", () => {
+    const input = {
+      homeDir: "/Users/tester",
+      projectRoot: "/tmp/codex-gateway",
+      env: {},
+    };
+    const gatewayHome = resolve("/tmp/codex-gateway/.codex-gateway");
+    expect(resolveGatewayHome(input)).toBe(gatewayHome);
     expect(resolveWebChatUsersPath(input)).toBe(
-      "/Users/tester/.codex-gateway/web-chat/users.json"
+      join(gatewayHome, "web-chat", "users.json")
     );
     expect(resolveWebChatAuthSessionsPath(input)).toBe(
-      "/Users/tester/.codex-gateway/web-chat/auth-sessions.json"
+      join(gatewayHome, "web-chat", "auth-sessions.json")
     );
     expect(resolveWebChatUserRoot("user-1", input)).toBe(
-      "/Users/tester/.codex-gateway/channels/web/user-1"
+      join(gatewayHome, "channels", "web", "user-1")
     );
     expect(resolveWebChatWorkspacePath("user-1", input)).toEndWith(
-      "/channels/web/user-1/workspace"
+      join("channels", "web", "user-1", "workspace")
     );
     expect(resolveWebChatSessionsPath("user-1", input)).toEndWith(
-      "/channels/web/user-1/sessions"
+      join("channels", "web", "user-1", "sessions")
     );
+  });
+
+  test("allows CODEX_GATEWAY_HOME to override the project data root", () => {
+    expect(
+      resolveGatewayHome({
+        homeDir: "/Users/tester",
+        projectRoot: "/tmp/codex-gateway",
+        env: { CODEX_GATEWAY_HOME: "~/.custom-gateway" },
+      })
+    ).toBe(join("/Users/tester", ".custom-gateway"));
   });
 });
