@@ -454,6 +454,10 @@ describe("Web Chat 页面", () => {
       "state.messages = mergePendingAcceptedMessages(serverMessages);"
     );
     expect(html).toContain("state.pendingAcceptedMessages.delete(message.id)");
+    expect(html).toContain("if (accepted && accepted.userMessage)");
+    expect(html).toContain("rememberAcceptedMessage(accepted.userMessage)");
+    expect(html).toContain("events.onopen = function ()");
+    expect(html).toContain("refreshCurrent().catch(showError)");
   });
 
   test("失败 Trace 展开后显示具体错误", () => {

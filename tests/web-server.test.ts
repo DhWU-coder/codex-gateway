@@ -2,7 +2,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { handleWebRequest } from "../src/web-server.js";
+import {
+  handleWebRequest,
+  WEB_SERVER_IDLE_TIMEOUT_SECONDS,
+} from "../src/web-server.js";
+import { WEB_CHAT_SSE_HEARTBEAT_MS } from "../src/web-chat/http.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -13,6 +17,12 @@ afterEach(() => {
 });
 
 describe("web server", () => {
+  test("SSE 心跳短于服务器空闲超时", () => {
+    expect(WEB_CHAT_SSE_HEARTBEAT_MS).toBeLessThan(
+      WEB_SERVER_IDLE_TIMEOUT_SECONDS * 1_000
+    );
+  });
+
   test("returns status JSON with channels", async () => {
     const response = await handleWebRequest(new Request("http://127.0.0.1/api/status"), {
       stateProvider: () => ({

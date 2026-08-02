@@ -22,6 +22,7 @@ import {
 import type {
   SessionAttachment,
   SessionMessage,
+  SessionReference,
 } from "../session/history.js";
 import {
   CodexSessionRouter,
@@ -90,6 +91,11 @@ export interface WebChatSendResult {
   assistantMessageId: string;
   output?: string;
   attachments: SessionAttachment[];
+}
+
+export interface WebChatAcceptedMessage {
+  userMessage: SessionMessage;
+  assistantMessageId: string;
 }
 
 export interface WebChatRewriteBranchResult {
@@ -569,7 +575,8 @@ export class WebChatManager {
   async sendMessage(
     userId: string,
     sessionId: string,
-    input: WebChatSendInput
+    input: WebChatSendInput,
+    onAccepted?: (accepted: WebChatAcceptedMessage) => void
   ): Promise<WebChatSendResult> {
     const user = this.requireEnabledUser(userId);
     let session = this.sessionStore.get(userId, sessionId);
@@ -627,15 +634,27 @@ export class WebChatManager {
       fileCount: files.length,
     });
     tracker.update(messageId, { stage: "queued" });
-    this.eventHub.publish(userId, {
+    const references: SessionReference[] = resolvedCapabilities?.references ?? [];
+    const acceptedEvent = this.eventHub.publish(userId, {
       sessionId,
       type: "message.accepted",
       payload: {
         messageId,
         text,
         attachments,
-        references: resolvedCapabilities?.references ?? [],
+        references,
       },
+    });
+    onAccepted?.({
+      userMessage: {
+        id: messageId,
+        role: "user",
+        text,
+        createdAt: acceptedEvent.createdAt,
+        attachments,
+        references,
+      },
+      assistantMessageId,
     });
 
     const key = runKey(userId, sessionId);

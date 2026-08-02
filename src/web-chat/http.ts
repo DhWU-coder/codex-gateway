@@ -11,7 +11,10 @@ import {
   normalizeWebChatCommand,
   WEB_CHAT_COMMANDS,
 } from "./commands.js";
-import { WebChatManager } from "./manager.js";
+import {
+  WebChatManager,
+  type WebChatAcceptedMessage,
+} from "./manager.js";
 import {
   renderWebChatPage,
   type WebChatPageOptions,
@@ -25,6 +28,8 @@ const INLINE_IMAGE_MIME_TYPES = new Set([
   "image/webp",
   "image/avif",
 ]);
+
+export const WEB_CHAT_SSE_HEARTBEAT_MS = 5_000;
 
 export interface WebChatHttpOptions {
   manager: WebChatManager;
@@ -305,14 +310,17 @@ export async function handleWebChatRequest(
       if (!text.trim() && fileIds.length === 0 && references.length === 0) {
         return jsonResponse({ error: "消息内容不能为空。" }, 400);
       }
+      let accepted: WebChatAcceptedMessage | undefined;
       void options.manager
         .sendMessage(authenticated.user.id, sessionId, {
           text,
           fileIds,
           references,
+        }, (message) => {
+          accepted = message;
         })
         .catch(() => undefined);
-      return jsonResponse({ accepted: true }, 202);
+      return jsonResponse({ accepted: true, ...accepted }, 202);
     }
 
     const rewriteMessageRoute = matchPath(
@@ -575,6 +583,7 @@ function createEventStream(
   let abort = () => undefined;
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      controller.enqueue(encoder.encode("retry: 1500\n: connected\n\n"));
       const replay = manager.eventHub.eventsSince(
         authenticated.user.id,
         lastEventId
@@ -595,7 +604,7 @@ function createEventStream(
         try {
           controller.enqueue(encoder.encode(": keepalive\n\n"));
         } catch {}
-      }, 20_000);
+      }, WEB_CHAT_SSE_HEARTBEAT_MS);
       abort = () => {
         unsubscribe();
         if (heartbeat) clearInterval(heartbeat);

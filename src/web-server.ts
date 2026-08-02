@@ -87,10 +87,13 @@ export interface WebChannelManager {
   saveChannelInstructions?(id: string, content: string): unknown;
 }
 
+export const WEB_SERVER_IDLE_TIMEOUT_SECONDS = 60;
+
 export function startWebServer(options: WebServerOptions): ReturnType<typeof Bun.serve> {
   return Bun.serve({
     hostname: options.hostname ?? "127.0.0.1",
     port: options.port,
+    idleTimeout: WEB_SERVER_IDLE_TIMEOUT_SECONDS,
     fetch: (request, server) =>
       handleWebRequest(request, options, {
         remoteAddress: server.requestIP(request)?.address,

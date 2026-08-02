@@ -239,6 +239,16 @@ describe("Web Chat HTTP", () => {
       }
     );
     expect(accepted.status).toBe(202);
+    expect(await accepted.json()).toMatchObject({
+      accepted: true,
+      userMessage: {
+        id: expect.any(String),
+        role: "user",
+        text: "你好",
+        createdAt: expect.any(String),
+      },
+      assistantMessageId: expect.any(String),
+    });
     await waitFor(
       () =>
         fixture.manager.listMessages(fixture.userId, session.id, { limit: 20 })
@@ -631,9 +641,15 @@ describe("Web Chat HTTP", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/event-stream");
     const reader = response.body!.getReader();
-    const chunk = await reader.read();
+    let text = "";
+    for (let index = 0; index < 4 && !text.includes("message.trace"); index += 1) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      text += new TextDecoder().decode(chunk.value);
+    }
     await reader.cancel();
-    const text = new TextDecoder().decode(chunk.value);
+    expect(text).toContain("retry: 1500");
+    expect(text).toContain(": connected");
     expect(text).toContain("message.trace");
     expect(text).toContain('"status":"completed"');
     expect(text).not.toContain("stderr");

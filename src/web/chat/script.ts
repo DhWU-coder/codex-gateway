@@ -2076,7 +2076,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
         await loadSessions();
         await openSession(rewrite.session.id);
       }
-      await api("/api/chat/sessions/" + encodeURIComponent(state.currentSession.id) + "/messages", {
+      var accepted = await api("/api/chat/sessions/" + encodeURIComponent(state.currentSession.id) + "/messages", {
         method: "POST",
         body: {
           text: text,
@@ -2084,6 +2084,12 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
           references: referenceIds
         }
       });
+      if (accepted && accepted.userMessage) {
+        rememberAcceptedMessage(accepted.userMessage);
+        renderMessages();
+      }
+      scheduleTraceRefresh();
+      loadSessions().catch(showError);
       textarea.value = "";
       textarea.style.height = "";
       releaseAllPendingImageUrls();
@@ -2132,6 +2138,10 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
         handleEvent(type, event);
       });
     });
+    events.onopen = function () {
+      if (state.eventSource !== events) return;
+      refreshCurrent().catch(showError);
+    };
     events.onerror = function () {
       if (events.readyState === EventSource.CLOSED) {
         setTimeout(connectEvents, 1500);
