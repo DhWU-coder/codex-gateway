@@ -45,6 +45,7 @@ const WEB_CHAT_ICONS = {
     "button-icon theme-icon theme-icon-light"
   ),
   pencil: renderWebChatIcon(Pencil, "button-icon session-rename-icon"),
+  rewrite: renderWebChatIcon(Pencil),
   send: renderWebChatIcon(Send),
   settings: renderWebChatIcon(Settings2),
   stop: renderWebChatIcon(Square),
@@ -180,6 +181,7 @@ export function renderWebChatPage(options: WebChatPageOptions = {}): string {
     </div>
     <template id="sessionMoreIconTemplate">${WEB_CHAT_ICONS.more}</template>
     <template id="copyIconTemplate">${WEB_CHAT_ICONS.copy}</template>
+    <template id="rewriteIconTemplate">${WEB_CHAT_ICONS.rewrite}</template>
     <template id="fileIconTemplate">${WEB_CHAT_ICONS.file}</template>
     <template id="downloadIconTemplate">${WEB_CHAT_ICONS.download}</template>
     <template id="closeIconTemplate">${WEB_CHAT_ICONS.close}</template>
@@ -206,6 +208,10 @@ export function renderWebChatPage(options: WebChatPageOptions = {}): string {
           <span class="activity-spinner" aria-hidden="true"></span>
           <span class="latest-activity-text" id="latestActivityText"></span>
         </button>
+        <div class="rewrite-banner" id="rewriteBanner" role="status" hidden>
+          <span>正在重写这条消息；发送后将从这里创建新分支，原对话会保留。</span>
+          <button id="cancelRewriteButton" type="button">取消</button>
+        </div>
         <div class="pending-files" id="pendingFiles"></div>
         <div class="selected-references" id="selectedReferences"></div>
         <div class="composer-stack">

@@ -251,7 +251,24 @@ describe("Web Chat HTTP", () => {
       { cookie: login.cookie }
     );
     expect(messages.status).toBe(200);
-    expect((await messages.json()).messages).toHaveLength(2);
+    const messageBody = await messages.json();
+    expect(messageBody.messages).toHaveLength(2);
+
+    const rewritten = await request(
+      fixture,
+      `/api/chat/sessions/${session.id}/messages/${messageBody.messages[0].id}/rewrite`,
+      {
+        method: "POST",
+        cookie: login.cookie,
+        csrfToken: login.csrfToken,
+      }
+    );
+    expect(rewritten.status).toBe(201);
+    expect(await rewritten.json()).toMatchObject({
+      session: { forkedFrom: session.id, title: "HTTP 会话（重写）" },
+      fileIds: [],
+      references: [],
+    });
 
     const renamed = await request(
       fixture,

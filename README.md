@@ -109,6 +109,7 @@ Web Chat 登录 Session 会保存到 `~/.codex-gateway/web-chat/auth-sessions.js
 - 输入 `@` 引用工作区文件或文件夹，以及当前启用的 Skill、插件、应用；也可以选择、拖拽或粘贴附件；
 - 运行期间按时间顺序查看中间回复和工具调用；任务结束后过程自动折叠，最终回复保持展开；
 - 上传文件、下载 Codex 生成的文件，并在历史消息中保留附件和引用；
+- 重写任意用户消息，从该消息之前的历史创建独立分支；原会话继续保留，原消息的附件和引用会自动继承；
 - 停止当前任务，并在断线重连后恢复 Session 与消息。
 
 Web Chat 由 Gateway 进程内一个长驻的 `codex app-server --stdio` 后端处理，复用同一协议连接管理 Thread、Turn、模型目录、命令、引用和实时过程；Gateway 重启后会根据已保存的 Thread ID 恢复会话。飞书频道仍使用 `codex exec --json`，不受 Web Chat 后端切换影响。

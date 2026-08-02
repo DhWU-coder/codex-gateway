@@ -391,7 +391,7 @@ describe("Web Chat 页面", () => {
     expect(html).toContain("actions.append(createMessageCopyButton(message.text))");
     expect(html).toContain('message.role === "assistant"');
     expect(html).toContain("!message.streaming");
-    expect(html).toContain(".message-copy-button {");
+    expect(html).toContain(".message-copy-button,\n.message-rewrite-button {");
     expect(html).toContain(".message-body table {");
     expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain("function splitTableRow(line)");
     expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain('document.createElement("table")');
@@ -403,6 +403,22 @@ describe("Web Chat 页面", () => {
     expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain('await copyPlainText(code.textContent || "")');
     expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain('setCodeCopyLabel(copy, "\\u590D\\u5236")');
     expect(html).toContain(".code-copy-button {");
+  });
+
+  test("用户消息支持从目标位置重写并创建新分支", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain('id="rewriteIconTemplate"');
+    expect(html).toContain('id="rewriteBanner"');
+    expect(html).toContain('id="cancelRewriteButton"');
+    expect(html).toContain("function createMessageRewriteButton(message)");
+    expect(html).toContain("function beginMessageRewrite(message)");
+    expect(html).toContain('button.className = "message-rewrite-button tooltip-button"');
+    expect(html).toContain('userActions.className = "message-actions user-message-actions"');
+    expect(html).toContain('+ "/rewrite"');
+    expect(html).toContain("await openSession(rewrite.session.id)");
+    expect(html).toContain(".rewrite-banner {");
+    expect(html).toContain(".message-rewrite-button {");
   });
 
   test("非运行过程显示真实耗时的简洁折叠横条", () => {

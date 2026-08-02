@@ -92,6 +92,12 @@ export interface WebChatSendResult {
   attachments: SessionAttachment[];
 }
 
+export interface WebChatRewriteBranchResult {
+  session: WebChatSessionRecord;
+  fileIds: string[];
+  references: string[];
+}
+
 export interface WebChatMessagePage {
   messages: SessionMessage[];
   total: number;
@@ -458,6 +464,50 @@ export class WebChatManager {
         });
     }
     return fork;
+  }
+
+  createRewriteBranch(
+    userId: string,
+    sessionId: string,
+    messageId: string
+  ): WebChatRewriteBranchResult {
+    const source = this.sessionStore.get(userId, sessionId);
+    if (!source) throw new Error("Session 不存在。");
+    if (source.running || this.runStates.has(runKey(userId, sessionId))) {
+      throw new Error("当前会话仍在运行，不能重写消息。");
+    }
+    const sourceRouter = this.routerFor(userId, source);
+    const messages =
+      sourceRouter.getArchivedSessionDetail(sessionId)?.messages ?? [];
+    const targetIndex = messages.findIndex(
+      (message) => message.role === "user" && message.id === messageId
+    );
+    if (targetIndex < 0) throw new Error("没有找到要重写的用户消息。");
+    const target = messages[targetIndex]!;
+    const branch = this.createSession(userId, {
+      title: `${source.title}（重写）`,
+      model: source.model,
+      reasoningEffort: source.reasoningEffort,
+      fast: source.fast,
+      verbosity: source.verbosity,
+      forkedFrom: source.id,
+    });
+    this.routerFor(userId, branch).importMessages(
+      branch.id,
+      messages.slice(0, targetIndex),
+      source.id
+    );
+    return {
+      session: branch,
+      fileIds: (target.attachments ?? [])
+        .filter(
+          (attachment) =>
+            attachment.kind === "upload" &&
+            Boolean(this.fileRepository.open(userId, attachment.id))
+        )
+        .map((attachment) => attachment.id),
+      references: (target.references ?? []).map((reference) => reference.id),
+    };
   }
 
   listMessages(

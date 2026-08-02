@@ -454,7 +454,9 @@ button { cursor: pointer; }
 .code-block pre { margin: 0; overflow-x: auto; padding: 14px; }
 .code-block code { padding: 0; background: transparent; color: inherit; white-space: pre; }
 .message-actions { display: flex; min-height: 30px; align-items: center; margin-top: 6px; }
-.message-copy-button {
+.user-message-actions { justify-content: flex-end; margin-top: 3px; }
+.message-copy-button,
+.message-rewrite-button {
   position: relative;
   display: grid;
   width: 30px;
@@ -467,8 +469,11 @@ button { cursor: pointer; }
   color: var(--muted);
 }
 .message-copy-button:hover,
-.message-copy-button:focus-visible { background: var(--surface-2); color: var(--text); }
-.message-copy-button:disabled { opacity: .65; }
+.message-copy-button:focus-visible,
+.message-rewrite-button:hover,
+.message-rewrite-button:focus-visible { background: var(--surface-2); color: var(--text); }
+.message-copy-button:disabled,
+.message-rewrite-button:disabled { opacity: .65; }
 .attachments { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
 .attachment {
   display: inline-flex;
@@ -638,6 +643,25 @@ button { cursor: pointer; }
   padding: 10px max(var(--chat-side-padding), calc((100% - var(--chat-content-width)) / 2)) calc(14px + env(safe-area-inset-bottom));
   background: linear-gradient(to bottom, transparent, var(--bg) 16%);
 }
+.rewrite-banner {
+  display: flex;
+  min-height: 36px;
+  max-width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 auto 7px;
+  padding: 6px 10px 6px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+}
+.rewrite-banner[hidden] { display: none; }
+.rewrite-banner span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rewrite-banner button { flex: 0 0 auto; padding: 4px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--text); }
+.rewrite-banner button:hover { background: var(--surface-3); }
 .latest-activity {
   min-height: 34px;
   max-width: 100%;

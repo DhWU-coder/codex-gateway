@@ -660,6 +660,68 @@ describe("Web Chat Manager", () => {
     expect(rebuilt.getSession(firstUser.id, source.id)?.running).toBe(false);
   });
 
+  test("重写用户消息会从目标之前创建独立分支并保留原会话", async () => {
+    const gatewayHome = createRoot();
+    const userStore = new WebChatUserStore({ gatewayHome });
+    const user = await userStore.create({
+      username: "rewrite-owner",
+      password: "password-123",
+    });
+    const calls: CodexRunInput[] = [];
+    const manager = createManager({
+      gatewayHome,
+      userStore,
+      runner: async (input) => {
+        calls.push(input);
+        return {
+          text: calls.length === 1 ? "第一条回答" : calls.length === 2 ? "第二条回答" : "重写回答",
+          sessionId: `codex-rewrite-${calls.length}`,
+        };
+      },
+    });
+    const source = manager.createSession(user.id, { title: "重写测试" });
+    await manager.sendMessage(user.id, source.id, { text: "第一条问题" });
+    const attachment = manager.uploadFile(user.id, source.id, {
+      name: "rewrite.txt",
+      mimeType: "text/plain",
+      data: new TextEncoder().encode("rewrite attachment"),
+    });
+    await manager.sendMessage(user.id, source.id, {
+      text: "第二条问题",
+      fileIds: [attachment.id],
+    });
+    const sourceMessages = manager.listMessages(user.id, source.id, { limit: 20 })!.messages;
+    const secondUserMessage = sourceMessages.find(
+      (message) => message.role === "user" && message.text === "第二条问题"
+    );
+
+    const rewrite = manager.createRewriteBranch(
+      user.id,
+      source.id,
+      secondUserMessage!.id!
+    );
+    expect(rewrite.session).toMatchObject({
+      title: "重写测试（重写）",
+      forkedFrom: source.id,
+      threadId: undefined,
+    });
+    expect(rewrite.fileIds).toEqual([attachment.id]);
+    expect(manager.listMessages(user.id, source.id, { limit: 20 })?.messages).toHaveLength(4);
+    expect(manager.listMessages(user.id, rewrite.session.id, { limit: 20 })?.messages).toEqual(
+      sourceMessages.slice(0, 2)
+    );
+
+    await manager.sendMessage(user.id, rewrite.session.id, {
+      text: "修改后的第二条问题",
+      fileIds: rewrite.fileIds,
+    });
+    expect(calls.at(-1)).toMatchObject({ resume: false, sessionId: undefined });
+    expect(calls.at(-1)?.prompt).toContain("第一条问题");
+    expect(calls.at(-1)?.prompt).toContain("第一条回答");
+    expect(calls.at(-1)?.prompt).toContain("修改后的第二条问题");
+    expect(manager.listMessages(user.id, rewrite.session.id, { limit: 20 })?.messages).toHaveLength(4);
+  });
+
   test("批量删除会停止运行 Session、去重并隔离跨用户失败项", async () => {
     const gatewayHome = createRoot();
     const userStore = new WebChatUserStore({ gatewayHome });

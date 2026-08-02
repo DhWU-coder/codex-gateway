@@ -315,6 +315,19 @@ export async function handleWebChatRequest(
       return jsonResponse({ accepted: true }, 202);
     }
 
+    const rewriteMessageRoute = matchPath(
+      url.pathname,
+      /^\/api\/chat\/sessions\/([^/]+)\/messages\/([^/]+)\/rewrite$/
+    );
+    if (rewriteMessageRoute && request.method === "POST") {
+      const result = options.manager.createRewriteBranch(
+        authenticated.user.id,
+        rewriteMessageRoute[0],
+        rewriteMessageRoute[1]
+      );
+      return jsonResponse(result, 201);
+    }
+
     const commandRoute = matchPath(
       url.pathname,
       /^\/api\/chat\/sessions\/([^/]+)\/commands$/

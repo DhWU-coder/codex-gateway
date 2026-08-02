@@ -29,6 +29,8 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     streamText: new Map(),
     activities: new Map(),
     pendingAcceptedMessages: new Map(),
+    rewriteSourceSessionId: null,
+    rewriteMessageId: null,
     expandedTraceIds: new Set(),
     notices: [],
     contextSessionId: null,
@@ -80,6 +82,8 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     state.streamText.clear();
     state.activities.clear();
     state.pendingAcceptedMessages.clear();
+    state.rewriteSourceSessionId = null;
+    state.rewriteMessageId = null;
     state.expandedTraceIds.clear();
     closeSessionContextMenu();
     closeComposerPopovers();
@@ -88,6 +92,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     byId("messageList").replaceChildren();
     byId("pendingFiles").replaceChildren();
     byId("selectedReferences").replaceChildren();
+    byId("rewriteBanner").hidden = true;
     if (byId("accountDialog").open) byId("accountDialog").close();
     resetFileDropState();
     switchAuthMode("login");
@@ -682,6 +687,12 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
   }
 
   async function openSession(sessionId) {
+    if (
+      state.rewriteSourceSessionId &&
+      state.rewriteSourceSessionId !== sessionId
+    ) {
+      cancelMessageRewrite();
+    }
     var data = await api("/api/chat/sessions/" + encodeURIComponent(sessionId));
     releaseAllPendingImageUrls();
     state.pendingFiles = [];
@@ -828,6 +839,59 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     return button;
   }
 
+  function setMessageRewriteLabel(button, label) {
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.setAttribute("data-tooltip", label);
+  }
+
+  function createMessageRewriteButton(message) {
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "message-rewrite-button tooltip-button";
+    setMessageRewriteLabel(button, "重写");
+    button.append(byId("rewriteIconTemplate").content.cloneNode(true));
+    button.addEventListener("click", function () {
+      beginMessageRewrite(message);
+    });
+    return button;
+  }
+
+  function renderMessageRewriteState() {
+    byId("rewriteBanner").hidden = !state.rewriteMessageId;
+  }
+
+  function cancelMessageRewrite() {
+    state.rewriteSourceSessionId = null;
+    state.rewriteMessageId = null;
+    renderMessageRewriteState();
+    var textarea = byId("composerInput");
+    textarea.value = "";
+    textarea.style.height = "";
+  }
+
+  function beginMessageRewrite(message) {
+    if (!state.currentSession || !message.id || message.role !== "user") return;
+    if (state.currentSession.running) {
+      showError(new Error("当前会话仍在运行，请等待完成或先停止。"));
+      return;
+    }
+    releaseAllPendingImageUrls();
+    state.pendingFiles = [];
+    state.selectedReferences = [];
+    renderPendingFiles();
+    renderSelectedReferences();
+    closeComposerPopovers();
+    state.rewriteSourceSessionId = state.currentSession.id;
+    state.rewriteMessageId = message.id;
+    renderMessageRewriteState();
+    var textarea = byId("composerInput");
+    textarea.value = message.text || "";
+    resizeComposerInput(textarea);
+    textarea.focus();
+    textarea.scrollIntoView({ block: "nearest" });
+  }
+
   function createMessageNode(message, trace) {
     var article = document.createElement("article");
     article.className = "message " + message.role;
@@ -874,6 +938,12 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
       content.append(actions);
     }
     article.append(avatar, content);
+    if (message.role === "user" && message.id) {
+      var userActions = document.createElement("div");
+      userActions.className = "message-actions user-message-actions";
+      userActions.append(createMessageRewriteButton(message));
+      article.append(userActions);
+    }
     return article;
   }
 
@@ -1947,17 +2017,28 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     }
   }
 
+  function resizeComposerInput(textarea) {
+    textarea.style.height = "auto";
+    textarea.style.height = Math.min(160, textarea.scrollHeight) + "px";
+  }
+
   async function sendMessage() {
     if (!state.currentSession) return;
     var textarea = byId("composerInput");
     var text = textarea.value.trim();
+    var rewriting = Boolean(
+      state.rewriteMessageId &&
+      state.rewriteSourceSessionId === state.currentSession.id
+    );
     if (
       !text
       && state.pendingFiles.length === 0
       && state.selectedReferences.length === 0
+      && !rewriting
     ) return;
     if (
-      text.startsWith("/")
+      !rewriting
+      && text.startsWith("/")
       && state.pendingFiles.length === 0
       && state.selectedReferences.length === 0
     ) {
@@ -1973,12 +2054,34 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     send.disabled = true;
     try {
       var fileIds = await uploadPendingFiles();
+      var referenceIds = state.selectedReferences.map(function (item) { return item.id; });
+      if (rewriting) {
+        var sourceSessionId = state.rewriteSourceSessionId;
+        var rewriteMessageId = state.rewriteMessageId;
+        var rewrite = await api(
+          "/api/chat/sessions/"
+          + encodeURIComponent(sourceSessionId)
+          + "/messages/"
+          + encodeURIComponent(rewriteMessageId)
+          + "/rewrite",
+          { method: "POST" }
+        );
+        fileIds = Array.from(new Set([].concat(rewrite.fileIds || [], fileIds)));
+        referenceIds = Array.from(
+          new Set([].concat(rewrite.references || [], referenceIds))
+        );
+        state.rewriteSourceSessionId = null;
+        state.rewriteMessageId = null;
+        renderMessageRewriteState();
+        await loadSessions();
+        await openSession(rewrite.session.id);
+      }
       await api("/api/chat/sessions/" + encodeURIComponent(state.currentSession.id) + "/messages", {
         method: "POST",
         body: {
           text: text,
           fileIds: fileIds,
-          references: state.selectedReferences.map(function (item) { return item.id; })
+          references: referenceIds
         }
       });
       textarea.value = "";
@@ -2469,6 +2572,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     byId("newSessionButton").addEventListener("click", function () {
       createSession().catch(showError);
     });
+    byId("cancelRewriteButton").addEventListener("click", cancelMessageRewrite);
     byId("sessionSelectionButton").addEventListener("click", enterSessionSelection);
     byId("sessionSelectAll").addEventListener("change", toggleAllSessions);
     byId("sessionBulkDelete").addEventListener("click", function () {
@@ -2649,8 +2753,7 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
       }
     });
     composerInput.addEventListener("input", function (event) {
-      event.target.style.height = "auto";
-      event.target.style.height = Math.min(160, event.target.scrollHeight) + "px";
+      resizeComposerInput(event.target);
       updateComposerPanels();
     });
     composerInput.addEventListener("paste", function (event) {
