@@ -432,9 +432,25 @@ button { cursor: pointer; }
 .message-body .align-left { text-align: left; }
 .message-body .align-center { text-align: center; }
 .message-body .align-right { text-align: right; }
-.code-block { margin: 12px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: var(--code); color: var(--code-text); }
-.code-bar { min-height: 38px; display: flex; align-items: center; justify-content: space-between; padding: 4px 7px 4px 12px; border-bottom: 1px solid #3b4650; color: #aeb9c3; font-size: 12px; }
-.code-bar .icon-button { border-color: #46515c; background: transparent; color: #dbe2e8; }
+.code-block { margin: 12px 0; overflow: visible; border: 1px solid var(--line); border-radius: 8px; background: var(--code); color: var(--code-text); }
+.code-bar { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 8px 5px 13px; border-bottom: 1px solid #3b4650; border-radius: 8px 8px 0 0; color: #aeb9c3; font-size: 12px; }
+.code-language { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.code-copy-button {
+  position: relative;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #aeb9c3;
+}
+.code-copy-button:hover,
+.code-copy-button:focus-visible { background: #30383f; color: #f2f5f7; }
+.code-copy-button:disabled { opacity: .65; }
 .code-block pre { margin: 0; overflow-x: auto; padding: 14px; }
 .code-block code { padding: 0; background: transparent; color: inherit; white-space: pre; }
 .message-actions { display: flex; min-height: 30px; align-items: center; margin-top: 6px; }

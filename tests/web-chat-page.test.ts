@@ -397,6 +397,12 @@ describe("Web Chat 页面", () => {
     expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain('document.createElement("table")');
     expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain("isTableDelimiter(delimiterCells)");
     expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain('document.execCommand("copy")');
+    expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain('copy.className = "code-copy-button tooltip-button"');
+    expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain('copy.append(copyIcon.content.cloneNode(true))');
+    expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain('language.textContent = codeLanguage || "text"');
+    expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain('await copyPlainText(code.textContent || "")');
+    expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain('setCodeCopyLabel(copy, "\\u590D\\u5236")');
+    expect(html).toContain(".code-copy-button {");
   });
 
   test("非运行过程显示真实耗时的简洁折叠横条", () => {

@@ -98,6 +98,12 @@ export const WEB_CHAT_MARKDOWN_SCRIPT = String.raw`
       list = null;
     }
 
+    function setCodeCopyLabel(button, label) {
+      button.title = label;
+      button.setAttribute("aria-label", label);
+      button.setAttribute("data-tooltip", label);
+    }
+
     function flushCode() {
       if (!codeLines) return;
       var frame = document.createElement("div");
@@ -105,17 +111,34 @@ export const WEB_CHAT_MARKDOWN_SCRIPT = String.raw`
       var bar = document.createElement("div");
       bar.className = "code-bar";
       var language = document.createElement("span");
-      language.textContent = codeLanguage || "code";
+      language.className = "code-language";
+      language.textContent = codeLanguage || "text";
       var copy = document.createElement("button");
       copy.type = "button";
-      copy.className = "icon-button small";
-      copy.title = "复制代码";
-      copy.setAttribute("aria-label", "复制代码");
-      copy.textContent = "⧉";
+      copy.className = "code-copy-button tooltip-button";
       var code = document.createElement("code");
       code.textContent = codeLines.join("\n");
-      copy.addEventListener("click", function () {
-        copyPlainText(code.textContent || "").catch(function () {});
+      var copyIcon = document.getElementById("copyIconTemplate");
+      if (copyIcon && copyIcon.content) {
+        copy.append(copyIcon.content.cloneNode(true));
+      } else {
+        copy.textContent = "\u590D\u5236";
+      }
+      setCodeCopyLabel(copy, "\u590D\u5236");
+      copy.addEventListener("click", async function () {
+        copy.disabled = true;
+        try {
+          await copyPlainText(code.textContent || "");
+          setCodeCopyLabel(copy, "\u5DF2\u590D\u5236");
+        } catch (_) {
+          setCodeCopyLabel(copy, "\u590D\u5236\u5931\u8D25");
+        } finally {
+          clearTimeout(copy.copyLabelTimer);
+          copy.copyLabelTimer = setTimeout(function () {
+            setCodeCopyLabel(copy, "\u590D\u5236");
+          }, 1500);
+          copy.disabled = false;
+        }
       });
       bar.append(language, copy);
       var pre = document.createElement("pre");
