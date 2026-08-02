@@ -423,11 +423,36 @@ button { cursor: pointer; }
 .message-body blockquote { margin: 10px 0; padding: 6px 12px; border-left: 3px solid var(--accent); color: var(--muted); }
 .message-body a { color: var(--focus); }
 .message-body code { padding: 2px 5px; border-radius: 4px; background: var(--surface-3); }
+.markdown-table-wrap { max-width: 100%; margin: 12px 0; overflow-x: auto; }
+.message-body table { min-width: min(100%, 520px); border-collapse: collapse; }
+.message-body th,
+.message-body td { padding: 8px 12px; border: 1px solid var(--line); vertical-align: top; }
+.message-body th { background: var(--surface-2); font-weight: 750; }
+.message-body tbody tr:nth-child(even) { background: color-mix(in srgb, var(--surface-2) 55%, transparent); }
+.message-body .align-left { text-align: left; }
+.message-body .align-center { text-align: center; }
+.message-body .align-right { text-align: right; }
 .code-block { margin: 12px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: var(--code); color: var(--code-text); }
 .code-bar { min-height: 38px; display: flex; align-items: center; justify-content: space-between; padding: 4px 7px 4px 12px; border-bottom: 1px solid #3b4650; color: #aeb9c3; font-size: 12px; }
 .code-bar .icon-button { border-color: #46515c; background: transparent; color: #dbe2e8; }
 .code-block pre { margin: 0; overflow-x: auto; padding: 14px; }
 .code-block code { padding: 0; background: transparent; color: inherit; white-space: pre; }
+.message-actions { display: flex; min-height: 30px; align-items: center; margin-top: 6px; }
+.message-copy-button {
+  position: relative;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+}
+.message-copy-button:hover,
+.message-copy-button:focus-visible { background: var(--surface-2); color: var(--text); }
+.message-copy-button:disabled { opacity: .65; }
 .attachments { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
 .attachment {
   display: inline-flex;

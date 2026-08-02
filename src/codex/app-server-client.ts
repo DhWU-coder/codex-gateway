@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
-import { getWindowsHideSpawnOptions } from "../process-options.js";
+import {
+  getWindowsHideSpawnOptions,
+  resolveCodexSpawnCommand,
+} from "../process-options.js";
 import type {
   AppServerInitializeResponse,
   AppServerNotification,
@@ -129,9 +132,15 @@ export class CodexAppServerClient {
   }
 
   private spawnProcess(): AppServerChildProcess {
-    return spawn(this.options.command, this.options.args ?? ["app-server", "--stdio"], {
+    const env = this.options.env ?? process.env;
+    const resolved = resolveCodexSpawnCommand(
+      this.options.command,
+      this.options.args ?? ["app-server", "--stdio"],
+      { cwd: this.options.cwd, env }
+    );
+    return spawn(resolved.command, resolved.args, {
       cwd: this.options.cwd,
-      env: this.options.env ?? process.env,
+      env,
       stdio: "pipe",
       ...getWindowsHideSpawnOptions(),
     });

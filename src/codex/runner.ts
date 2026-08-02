@@ -3,7 +3,10 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CodexSandboxMode } from "../config.js";
-import { getWindowsHideSpawnOptions } from "../process-options.js";
+import {
+  getWindowsHideSpawnOptions,
+  resolveCodexSpawnCommand,
+} from "../process-options.js";
 import type { CodexReasoningEffort, CodexVerbosity } from "./runtime-settings.js";
 import {
   type CodexProgressEvent,
@@ -167,7 +170,11 @@ async function runChildProcess(
   signal?: AbortSignal,
   onProgress?: (event: CodexProgressEvent) => void
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const child = spawn(command.command, command.args, {
+  const resolved = resolveCodexSpawnCommand(command.command, command.args, {
+    cwd: command.cwd,
+    env: command.env,
+  });
+  const child = spawn(resolved.command, resolved.args, {
     cwd: command.cwd,
     env: command.env,
     stdio: "pipe",

@@ -380,6 +380,25 @@ describe("Web Chat 页面", () => {
     );
   });
 
+  test("最终回复渲染 Markdown 表格并支持复制原始字符串", () => {
+    const html = renderWebChatPage();
+
+    expect(html).toContain('id="copyIconTemplate"');
+    expect(html).toContain("function createMessageCopyButton(rawText)");
+    expect(html).toContain("await window.copyPlainText(rawText)");
+    expect(html).toContain('setMessageCopyLabel(button, "\\u590D\\u5236")');
+    expect(html).toContain('actions.className = "message-actions"');
+    expect(html).toContain("actions.append(createMessageCopyButton(message.text))");
+    expect(html).toContain('message.role === "assistant"');
+    expect(html).toContain("!message.streaming");
+    expect(html).toContain(".message-copy-button {");
+    expect(html).toContain(".message-body table {");
+    expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain("function splitTableRow(line)");
+    expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain('document.createElement("table")');
+    expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain("isTableDelimiter(delimiterCells)");
+    expect(WEB_CHAT_MARKDOWN_SCRIPT).toContain('document.execCommand("copy")');
+  });
+
   test("非运行过程显示真实耗时的简洁折叠横条", () => {
     const html = renderWebChatPage();
 

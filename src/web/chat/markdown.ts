@@ -1,5 +1,35 @@
 export const WEB_CHAT_MARKDOWN_SCRIPT = String.raw`
 (function () {
+  async function copyPlainText(value) {
+    var text = String(value || "");
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch (_) {}
+    }
+    var textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.setAttribute("aria-hidden", "true");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    textarea.style.pointerEvents = "none";
+    document.body.append(textarea);
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+    var copied = false;
+    try {
+      copied = document.execCommand("copy");
+    } catch (_) {
+    } finally {
+      textarea.remove();
+    }
+    if (!copied) throw new Error("复制失败，请手动选择文本复制。");
+  }
+
+  window.copyPlainText = copyPlainText;
+
   function appendInline(parent, input) {
     var pattern = /(\`[^\`]+\`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g;
     var cursor = 0;
@@ -85,7 +115,7 @@ export const WEB_CHAT_MARKDOWN_SCRIPT = String.raw`
       var code = document.createElement("code");
       code.textContent = codeLines.join("\n");
       copy.addEventListener("click", function () {
-        navigator.clipboard.writeText(code.textContent || "").catch(function () {});
+        copyPlainText(code.textContent || "").catch(function () {});
       });
       bar.append(language, copy);
       var pre = document.createElement("pre");
@@ -96,7 +126,85 @@ export const WEB_CHAT_MARKDOWN_SCRIPT = String.raw`
       codeLanguage = "";
     }
 
-    lines.forEach(function (line) {
+    function splitTableRow(line) {
+      var source = String(line || "").trim();
+      if (source.startsWith("|")) source = source.slice(1);
+      if (source.endsWith("|") && !source.endsWith("\\|")) source = source.slice(0, -1);
+      var cells = [];
+      var cell = "";
+      var escaped = false;
+      var inlineCode = false;
+      for (var characterIndex = 0; characterIndex < source.length; characterIndex += 1) {
+        var character = source[characterIndex];
+        if (escaped) {
+          cell += character === "|" ? "|" : "\\" + character;
+          escaped = false;
+          continue;
+        }
+        if (character === "\\") {
+          escaped = true;
+          continue;
+        }
+        if (character === String.fromCharCode(96)) {
+          inlineCode = !inlineCode;
+          cell += character;
+          continue;
+        }
+        if (character === "|" && !inlineCode) {
+          cells.push(cell.trim());
+          cell = "";
+          continue;
+        }
+        cell += character;
+      }
+      if (escaped) cell += "\\";
+      cells.push(cell.trim());
+      return cells;
+    }
+
+    function isTableDelimiter(cells) {
+      return cells.length > 0 && cells.every(function (cell) {
+        return /^:?-{3,}:?$/.test(cell);
+      });
+    }
+
+    function tableAlignment(delimiter) {
+      if (delimiter.startsWith(":") && delimiter.endsWith(":")) return "center";
+      if (delimiter.endsWith(":")) return "right";
+      return "left";
+    }
+
+    function createTable(headerCells, delimiterCells, rows) {
+      var wrapper = document.createElement("div");
+      wrapper.className = "markdown-table-wrap";
+      var table = document.createElement("table");
+      var head = document.createElement("thead");
+      var headRow = document.createElement("tr");
+      headerCells.forEach(function (value, columnIndex) {
+        var cell = document.createElement("th");
+        cell.className = "align-" + tableAlignment(delimiterCells[columnIndex]);
+        appendInline(cell, value);
+        headRow.append(cell);
+      });
+      head.append(headRow);
+      var body = document.createElement("tbody");
+      rows.forEach(function (values) {
+        var row = document.createElement("tr");
+        headerCells.forEach(function (_header, columnIndex) {
+          var cell = document.createElement("td");
+          cell.className = "align-" + tableAlignment(delimiterCells[columnIndex]);
+          appendInline(cell, values[columnIndex] || "");
+          row.append(cell);
+        });
+        body.append(row);
+      });
+      table.append(head, body);
+      wrapper.append(table);
+      return wrapper;
+    }
+
+    for (var lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      var line = lines[lineIndex];
       var fence = line.match(/^\s*\`\`\`([a-zA-Z0-9_-]*)\s*$/);
       if (fence) {
         if (codeLines) flushCode();
@@ -106,40 +214,64 @@ export const WEB_CHAT_MARKDOWN_SCRIPT = String.raw`
           codeLines = [];
           codeLanguage = fence[1] || "";
         }
-        return;
+        continue;
       }
       if (codeLines) {
         codeLines.push(line);
-        return;
+        continue;
       }
       if (!line.trim()) {
         flushParagraph();
         flushList();
-        return;
+        continue;
+      }
+      if (line.includes("|") && lineIndex + 1 < lines.length) {
+        var headerCells = splitTableRow(line);
+        var delimiterCells = splitTableRow(lines[lineIndex + 1]);
+        if (
+          headerCells.length === delimiterCells.length &&
+          isTableDelimiter(delimiterCells)
+        ) {
+          flushParagraph();
+          flushList();
+          var rows = [];
+          var rowIndex = lineIndex + 2;
+          while (
+            rowIndex < lines.length &&
+            lines[rowIndex].trim() &&
+            lines[rowIndex].includes("|")
+          ) {
+            rows.push(splitTableRow(lines[rowIndex]));
+            rowIndex += 1;
+          }
+          fragment.append(createTable(headerCells, delimiterCells, rows));
+          lineIndex = rowIndex - 1;
+          continue;
+        }
       }
       var heading = line.match(/^(#{1,4})\s+(.+)$/);
       if (heading) {
         flushParagraph();
         flushList();
         fragment.append(textBlock("h" + heading[1].length, heading[2]));
-        return;
+        continue;
       }
       var item = line.match(/^\s*[-*]\s+(.+)$/);
       if (item) {
         flushParagraph();
         if (!list) list = document.createElement("ul");
         list.append(textBlock("li", item[1]));
-        return;
+        continue;
       }
       var quote = line.match(/^\s*>\s?(.+)$/);
       if (quote) {
         flushParagraph();
         flushList();
         fragment.append(textBlock("blockquote", quote[1]));
-        return;
+        continue;
       }
       paragraph.push(line);
-    });
+    }
     flushParagraph();
     flushList();
     flushCode();

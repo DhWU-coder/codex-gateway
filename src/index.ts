@@ -3,7 +3,10 @@ import { dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createExampleConfig, parseCliArgs, renderHelp } from "./cli.js";
 import { loadGatewayConfig } from "./config.js";
-import { getWindowsHideSpawnOptions } from "./process-options.js";
+import {
+  getWindowsHideSpawnOptions,
+  resolveCodexSpawnCommand,
+} from "./process-options.js";
 import { resolveConfigPath, resolveDefaultConfigPath } from "./paths.js";
 import {
   formatStartResult,
@@ -73,7 +76,10 @@ export async function main(argv: string[]): Promise<void> {
 async function runDoctor(configPath: string | undefined): Promise<void> {
   const config = loadGatewayConfig({ configPath });
   const command = config.codex.command || "codex";
-  const result = spawnSync(command, ["--version"], {
+  const versionCommand = resolveCodexSpawnCommand(command, ["--version"], {
+    cwd: config.service.cwd,
+  });
+  const result = spawnSync(versionCommand.command, versionCommand.args, {
     encoding: "utf-8",
     ...getWindowsHideSpawnOptions(),
   });

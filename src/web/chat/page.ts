@@ -1,4 +1,5 @@
 import {
+  Copy,
   Download,
   Ellipsis,
   FileText,
@@ -32,6 +33,7 @@ export interface WebChatPageOptions {
 const WEB_CHAT_ICONS = {
   add: renderWebChatIcon(Plus),
   attachment: renderWebChatIcon(Paperclip),
+  copy: renderWebChatIcon(Copy),
   download: renderWebChatIcon(Download),
   file: renderWebChatIcon(FileText, "attachment-file-icon"),
   logout: renderWebChatIcon(LogOut),
@@ -177,6 +179,7 @@ export function renderWebChatPage(options: WebChatPageOptions = {}): string {
       </button>
     </div>
     <template id="sessionMoreIconTemplate">${WEB_CHAT_ICONS.more}</template>
+    <template id="copyIconTemplate">${WEB_CHAT_ICONS.copy}</template>
     <template id="fileIconTemplate">${WEB_CHAT_ICONS.file}</template>
     <template id="downloadIconTemplate">${WEB_CHAT_ICONS.download}</template>
     <template id="closeIconTemplate">${WEB_CHAT_ICONS.close}</template>

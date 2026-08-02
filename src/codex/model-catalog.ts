@@ -1,6 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
-import { getWindowsHideSpawnOptions } from "../process-options.js";
+import {
+  getWindowsHideSpawnOptions,
+  resolveCodexSpawnCommand,
+} from "../process-options.js";
 import {
   type CodexReasoningEffort,
   type CodexVerbosity,
@@ -82,11 +85,12 @@ async function readCodexCatalogSnapshot(
   const spawnProcess = options.spawnProcess ?? spawn;
   const profile = options.profile?.trim();
   const args = [...(profile ? ["--profile", profile] : []), "app-server", "--stdio"];
+  const resolved = resolveCodexSpawnCommand(command, args, { cwd: options.cwd });
 
   return new Promise<CodexCatalogSnapshot>((resolve, reject) => {
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawnProcess(command, args, {
+      child = spawnProcess(resolved.command, resolved.args, {
         ...(options.cwd ? { cwd: options.cwd } : {}),
         stdio: ["pipe", "pipe", "pipe"],
         ...getWindowsHideSpawnOptions(),

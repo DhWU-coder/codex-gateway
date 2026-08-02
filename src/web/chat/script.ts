@@ -798,6 +798,36 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     }
   }
 
+  function setMessageCopyLabel(button, label) {
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.setAttribute("data-tooltip", label);
+  }
+
+  function createMessageCopyButton(rawText) {
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "message-copy-button tooltip-button";
+    setMessageCopyLabel(button, "复制");
+    button.append(byId("copyIconTemplate").content.cloneNode(true));
+    button.addEventListener("click", async function () {
+      button.disabled = true;
+      try {
+        await window.copyPlainText(rawText);
+        setMessageCopyLabel(button, "已复制");
+        clearTimeout(button.copyLabelTimer);
+        button.copyLabelTimer = setTimeout(function () {
+          setMessageCopyLabel(button, "复制");
+        }, 1500);
+      } catch (error) {
+        showError(error);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    return button;
+  }
+
   function createMessageNode(message, trace) {
     var article = document.createElement("article");
     article.className = "message " + message.role;
@@ -831,6 +861,17 @@ export const WEB_CHAT_APP_SCRIPT = String.raw`
     }
     if (message.attachments && message.attachments.length) {
       content.append(createAttachments(message.attachments));
+    }
+    if (
+      message.role === "assistant" &&
+      !message.streaming &&
+      typeof message.text === "string" &&
+      message.text.length > 0
+    ) {
+      var actions = document.createElement("div");
+      actions.className = "message-actions";
+      actions.append(createMessageCopyButton(message.text));
+      content.append(actions);
     }
     article.append(avatar, content);
     return article;
