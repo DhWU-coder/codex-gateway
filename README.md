@@ -148,7 +148,7 @@ codex-gateway status
 codex-gateway stop
 ```
 
-服务状态写入 `~/.codex-gateway/service.json`，日志写入 `~/.codex-gateway/logs/service.log`。如果默认端口被占用，会自动顺延到下一个可用端口。
+服务状态写入 `~/.codex-gateway/service.json`，日志写入 `~/.codex-gateway/logs/service.log`。首次启动时如果默认端口被其他程序占用，会自动顺延到下一个可用端口；执行 `restart` 时会等待原服务释放配置端口并在同一端口恢复监听，避免已打开的 Chat 页面失效。
 
 ## 配置
 

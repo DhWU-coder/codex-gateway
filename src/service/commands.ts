@@ -3,7 +3,12 @@ import { loadGatewayConfig } from "../config.js";
 import { resolveConfigPath } from "../paths.js";
 import { listLanIpv4Addresses, resolveServiceUrls } from "./addresses.js";
 import { getServiceLogPath } from "./paths.js";
-import { findServicePort, type ServicePortResult } from "./ports.js";
+import {
+  findServicePort,
+  type ServicePortResult,
+  type ServicePortState,
+  waitForServicePortState,
+} from "./ports.js";
 import { spawnDetachedServiceDaemon } from "./process.js";
 import {
   isProcessRunning,
@@ -31,7 +36,18 @@ export interface ServiceCommandOptions {
   removeState?: () => void;
   isStateRunning?: (state: ServiceState | null) => boolean;
   isProcessRunning?: (pid: number) => boolean;
-  killProcess?: (pid: number) => void;
+  killProcess?: (pid: number, signal?: NodeJS.Signals) => void;
+  waitForProcessExit?: (
+    pid: number,
+    checkRunning: (pid: number) => boolean,
+    timeoutMs: number
+  ) => Promise<boolean>;
+  waitForPortState?: (
+    port: number,
+    host: string,
+    expectedState: ServicePortState,
+    timeoutMs: number
+  ) => Promise<boolean>;
   findPort?: (preferredPort: number, host: string) => Promise<ServicePortResult>;
   networkAddresses?: () => string[];
   spawnDaemon?: (options: {
@@ -127,20 +143,65 @@ export async function stopServiceCommand(options: ServiceCommandOptions = {}): P
   if (!state) return "codex-gateway service already stopped";
   const checkRunning = options.isProcessRunning ?? isProcessRunning;
   if (checkRunning(state.pid)) {
+    const killProcess = options.killProcess ?? ((pid, signal = "SIGTERM") => {
+      process.kill(pid, signal);
+    });
     try {
-      (options.killProcess ?? ((pid) => process.kill(pid, "SIGTERM")))(state.pid);
+      killProcess(state.pid, "SIGTERM");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
     }
-    await waitForProcessExit(state.pid, checkRunning, 3000);
+    const waitForExit = options.waitForProcessExit ?? waitForProcessExit;
+    let exited = await waitForExit(state.pid, checkRunning, 3_000);
+    if (!exited) {
+      try {
+        killProcess(state.pid, "SIGKILL");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      }
+      exited = await waitForExit(state.pid, checkRunning, 2_000);
+    }
+    if (!exited) {
+      throw new Error(`codex-gateway service process ${state.pid} did not exit`);
+    }
   }
   (options.removeState ?? removeServiceState)();
   return `codex-gateway service stopped (pid ${state.pid})`;
 }
 
 export async function restartServiceCommand(options: ServiceCommandOptions = {}): Promise<string> {
+  const configPath = resolveConfigPath(options.configPath, {
+    cwd: options.cwd,
+    projectRoot: options.projectRoot,
+  });
+  const config = loadGatewayConfig({ configPath, env: options.env });
   await stopServiceCommand(options);
-  return formatStartResult(await startServiceCommand(options));
+  const waitForPortState = options.waitForPortState ?? ((port, host, state, timeoutMs) =>
+    waitForServicePortState(port, host, state, { timeoutMs }));
+  const preferredPort = config.service.port;
+  const host = config.service.host;
+  const released = await waitForPortState(preferredPort, host, "available", 10_000);
+  if (!released) {
+    throw new Error(`service port ${preferredPort} was not released after stopping`);
+  }
+
+  const findPort = options.findPort ?? findServicePort;
+  const result = await startServiceCommand({
+    ...options,
+    configPath,
+    findPort: async (port, listenHost) => {
+      const selected = await findPort(port, listenHost);
+      if (selected.port !== port) {
+        throw new Error(`service port ${port} became unavailable during restart`);
+      }
+      return selected;
+    },
+  });
+  const listening = await waitForPortState(preferredPort, host, "occupied", 10_000);
+  if (!listening) {
+    throw new Error(`service did not start listening on port ${preferredPort}`);
+  }
+  return formatStartResult(result);
 }
 
 export function statusServiceCommand(options: ServiceCommandOptions = {}): string {
@@ -151,10 +212,11 @@ async function waitForProcessExit(
   pid: number,
   checkRunning: (pid: number) => boolean,
   timeoutMs: number
-): Promise<void> {
+): Promise<boolean> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    if (!checkRunning(pid)) return;
+    if (!checkRunning(pid)) return true;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
+  return !checkRunning(pid);
 }

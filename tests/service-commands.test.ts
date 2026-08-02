@@ -1,10 +1,11 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   formatStartResult,
   formatStatus,
+  restartServiceCommand,
   startServiceCommand,
   stopServiceCommand,
 } from "../src/service/commands.js";
@@ -56,7 +57,7 @@ describe("service commands", () => {
     expect(result.state.pid).toBe(4321);
     expect(result.state.webUrl).toBe("http://127.0.0.1:18788/");
     expect(written.pid).toBe(4321);
-    expect(spawnedConfigPath).toBe("/tmp/codex-gateway/config.yaml");
+    expect(spawnedConfigPath).toBe(resolve("/tmp/codex-gateway/config.yaml"));
     expect(probedHost).toBe("127.0.0.1");
   });
 
@@ -159,6 +160,83 @@ describe("service commands", () => {
     expect(message).toContain("stopped");
     expect(killed).toEqual([]);
     expect(removed).toBe(true);
+  });
+
+  test("stop force kills a daemon that does not exit gracefully", async () => {
+    const signals: Array<NodeJS.Signals | undefined> = [];
+    let waits = 0;
+    const message = await stopServiceCommand({
+      readState: () => state({ pid: 4567 }),
+      isProcessRunning: () => true,
+      killProcess: (_pid, signal) => {
+        signals.push(signal);
+      },
+      waitForProcessExit: async () => {
+        waits += 1;
+        return waits === 2;
+      },
+      removeState: () => undefined,
+    });
+
+    expect(message).toContain("stopped");
+    expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+  });
+
+  test("restart waits for the configured port to be released and listening again", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "codex-gateway-restart-port-"));
+    const configPath = join(directory, "config.yaml");
+    await Bun.write(
+      configPath,
+      "service:\n  host: 0.0.0.0\n  port: 18788\n  cwd: /tmp/work\n"
+    );
+    const states: Array<{ state: string; port: number; host: string }> = [];
+    let removed = false;
+    let runningState: ServiceState | null = state({ pid: 5678 });
+
+    const message = await restartServiceCommand({
+      configPath,
+      readState: () => runningState,
+      isProcessRunning: () => false,
+      removeState: () => {
+        removed = true;
+        runningState = null;
+      },
+      writeState: () => undefined,
+      findPort: async (port) => ({ port }),
+      spawnDaemon: () => 6789,
+      networkAddresses: () => [],
+      waitForPortState: async (port, host, expectedState) => {
+        states.push({ state: expectedState, port, host });
+        return true;
+      },
+    });
+
+    expect(removed).toBe(true);
+    expect(message).toContain("service started (pid 6789)");
+    expect(states).toEqual([
+      { state: "available", port: 18788, host: "0.0.0.0" },
+      { state: "occupied", port: 18788, host: "0.0.0.0" },
+    ]);
+  });
+
+  test("restart never silently selects a fallback port", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "codex-gateway-restart-strict-"));
+    const configPath = join(directory, "config.yaml");
+    await Bun.write(
+      configPath,
+      "service:\n  host: 127.0.0.1\n  port: 18788\n  cwd: /tmp/work\n"
+    );
+
+    await expect(
+      restartServiceCommand({
+        configPath,
+        readState: () => null,
+        removeState: () => undefined,
+        findPort: async () => ({ port: 18789 }),
+        spawnDaemon: () => 6789,
+        waitForPortState: async () => true,
+      })
+    ).rejects.toThrow("service port 18788 became unavailable during restart");
   });
 });
 
